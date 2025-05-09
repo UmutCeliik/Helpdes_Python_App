@@ -1,0 +1,49 @@
+/* base.css içindeki temel sıfırlamalar ve değişkenler kalabilir */
+@import './base.css';
+
+/* Vuetify ile Çakışan Stiller Kaldırıldı/Yorumlandı */
+
+/* #app {
+  max-width: 1280px; /* KALDIRILDI - Vuetify layout'u bozar */
+  /* margin: 0 auto; /* KALDIRILDI */
+  /* padding: 2rem; /* KALDIRILDI */
+  /* font-weight: normal; */ /* İsteğe bağlı, kalabilir */
+/* } */
+
+/* Link stilleri genellikle sorun çıkarmaz, kalabilir */
+a,
+.green {
+  text-decoration: none;
+  color: hsla(160, 100%, 37%, 1); /* Vuetify tema renkleriyle değiştirmeyi düşünebilirsiniz */
+  transition: 0.4s;
+  padding: 3px;
+}
+
+@media (hover: hover) {
+  a:hover {
+    background-color: hsla(160, 100%, 37%, 0.2); /* Vuetify tema renkleriyle değiştirmeyi düşünebilirsiniz */
+  }
+}
+
+/* Medya sorgusu içindeki layout stilleri Vuetify ile çakışır */
+/* @media (min-width: 1024px) { */
+  /* body { */
+    /* display: flex; /* KALDIRILDI */
+    /* place-items: center; /* KALDIRILDI */
+  /* } */
+
+  /* #app { */
+    /* display: grid; /* KALDIRILDI */
+    /* grid-template-columns: 1fr 1fr; /* KALDIRILDI */
+    /* padding: 0 2rem; /* KALDIRILDI */
+  /* } */
+/* } */
+
+/* === Vuetify için Ekstra İpuçları === */
+
+/* Eğer base.css içinde de #app veya body için benzer layout stilleri varsa,
+   onları da kaldırmanız veya yorumlamanız gerekebilir. */
+
+/* Vuetify genellikle kendi font ve temel stillerini uygular.
+   base.css'deki font tanımlamalarıyla çakışma olup olmadığını kontrol edin. */
+
