@@ -30,10 +30,3 @@ class User(UserBase):
 
     class Config:
         from_attributes = True # SQLAlchemy modelinden Pydantic modeline dönüşüm için
-
-
-# Auth Service'in ihtiyaç duyduğu dahili model (hashlenmiş şifre dahil)
-class UserInternal(User):
-    hashed_password: str
-    class Config:
-        from_attributes = True
