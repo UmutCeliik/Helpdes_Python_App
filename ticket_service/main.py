@@ -5,6 +5,7 @@ from typing import List, Dict, Any, Annotated # Annotated eklendi
 import uuid
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
+import httpx
 
 # Ortak ve yerel modülleri import et
 from database_pkg.database import get_db
@@ -16,6 +17,7 @@ from .config import get_settings, Settings # config.py'den settings
 
 app = FastAPI(title="Ticket Service API - Keycloak Integrated")
 
+USER_SERVICE_URL = "http://localhost:8001"
 # CORS Ayarları
 origins = [
     "http://localhost:5173", # Vue frontend
@@ -45,36 +47,58 @@ async def create_ticket(
     current_user_payload: Annotated[Dict[str, Any], Depends(get_current_user_payload)],
     db: Session = Depends(get_db),
 ):
-    creator_user_id_str = current_user_payload.get("sub")
-    if not creator_user_id_str:
-        print("ERROR (TicketService-Create): User ID (sub) not found in token payload.")
+    keycloak_id_str = current_user_payload.get("sub")
+    if not keycloak_id_str:
+        # ... (hata yönetimi)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token ID (sub) yok")
 
-    print(f"TICKET_SERVICE_MAIN: create_ticket request from user_sub: {creator_user_id_str}, payload_roles: {current_user_payload.get('roles') or current_user_payload.get('realm_access', {}).get('roles')}")
-    
+    # 1. Adım: Kullanıcıyı user_service üzerinden senkronize et/varlığını doğrula
     try:
-        creator_id_uuid = uuid.UUID(creator_user_id_str) # String'i UUID'ye çevir
-        # TODO: İsteğe bağlı olarak, burada user_service'e gidip bu creator_id_uuid ile bir kullanıcının
-        # lokal DB'de var olup olmadığını kontrol edebilir veya JIT provisioning yapabilirsiniz.
-        # Şimdilik doğrudan creator_id'yi kullanıyoruz.
+        keycloak_roles = current_user_payload.get("roles", [])
+        if not keycloak_roles and current_user_payload.get("realm_access"):
+            keycloak_roles = current_user_payload.get("realm_access", {}).get("roles", [])
 
+        user_sync_payload = {
+            "id": keycloak_id_str,
+            "email": current_user_payload.get("email"),
+            "full_name": current_user_payload.get("name") or \
+                         f"{current_user_payload.get('given_name', '')} {current_user_payload.get('family_name', '')}".strip() or \
+                         current_user_payload.get("preferred_username"),
+            "roles": keycloak_roles,
+            "is_active": current_user_payload.get("email_verified", True) # veya Keycloak'taki 'enabled'
+        }
+        print(f"TICKET_SERVICE_MAIN: Attempting to sync user {keycloak_id_str} with user_service...")
+        async with httpx.AsyncClient() as client:
+            # user_service'deki endpoint'e POST yap
+            response = await client.post(f"{USER_SERVICE_URL}/users/sync-from-keycloak", json=user_sync_payload)
+            response.raise_for_status() # Hata varsa exception fırlat
+            synced_user = response.json()
+            print(f"TICKET_SERVICE_MAIN: User {synced_user.get('id')} synced/retrieved from user_service.")
+            # creator_id_uuid = uuid.UUID(synced_user.get("id")) # user_service'den dönen ID'yi kullan
+            creator_id_uuid = uuid.UUID(keycloak_id_str) # Keycloak ID'sini doğrudan kullanalım
+
+    except httpx.HTTPStatusError as e:
+        print(f"ERROR (TicketService-Create): Failed to sync user with user_service. Status: {e.response.status_code}, Response: {e.response.text}")
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=f"Kullanıcı servisi ile senkronizasyon hatası: {e.response.status_code}")
+    except Exception as e:
+        print(f"ERROR (TicketService-Create): Unexpected error during user sync: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Kullanıcı senkronizasyonu sırasında beklenmedik hata.")
+
+    # 2. Adım: Bileti oluştur
+    print(f"TICKET_SERVICE_MAIN: create_ticket request from user_sub: {keycloak_id_str} (UUID: {creator_id_uuid})")
+    try:
         created_db_ticket = crud.create_ticket(
             db=db, ticket=ticket_in, creator_id=creator_id_uuid
         )
         return created_db_ticket
+    # ... (mevcut hata yönetimi bloklarınız) ...
     except IntegrityError as e:
         db.rollback()
-        print(f"ERROR (TicketService-Create): IntegrityError while creating ticket: {e}")
-        # Bu genellikle creator_id (eğer users tablosunda foreign key ise) veya başka bir DB kısıtlaması
-        # ile ilgili olabilir. Eğer users tablosu user_service tarafından yönetiliyorsa,
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Bilet oluşturulurken veritabanı bütünlük hatası. Geçersiz kullanıcı ID veya referans olabilir.")
-    except ValueError as e: # uuid.UUID(str) başarısız olursa
-        db.rollback()
-        print(f"ERROR (TicketService-Create): Invalid UUID format for creator_id (sub): {creator_user_id_str} - {e}")
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Token'daki kullanıcı ID formatı geçersiz.")
+        print(f"ERROR (TicketService-Create): IntegrityError while creating ticket (after user sync attempt): {e}")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Bilet oluşturulurken veritabanı bütünlük hatası.")
     except Exception as e:
         db.rollback()
-        print(f"ERROR (TicketService-Create): Unexpected error while creating ticket: {e}")
+        print(f"ERROR (TicketService-Create): Unexpected error while creating ticket (after user sync attempt): {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Bilet oluşturulurken beklenmedik bir sunucu hatası oluştu.")
 
 
