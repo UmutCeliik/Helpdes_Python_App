@@ -46,14 +46,15 @@ async def create_ticket(
     ticket_in: models.TicketCreate,
     current_user_payload: Annotated[Dict[str, Any], Depends(get_current_user_payload)],
     db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings) # <-- AYARLAR İÇİN DEPENDENCY EKLENDİ
 ):
     keycloak_id_str = current_user_payload.get("sub")
     if not keycloak_id_str:
-        # ... (hata yönetimi)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token ID (sub) yok")
 
     # 1. Adım: Kullanıcıyı user_service üzerinden senkronize et/varlığını doğrula
     try:
+        # user_sync_payload oluşturma kısmı aynı kalıyor...
         keycloak_roles = current_user_payload.get("roles", [])
         if not keycloak_roles and current_user_payload.get("realm_access"):
             keycloak_roles = current_user_payload.get("realm_access", {}).get("roles", [])
@@ -65,42 +66,73 @@ async def create_ticket(
                          f"{current_user_payload.get('given_name', '')} {current_user_payload.get('family_name', '')}".strip() or \
                          current_user_payload.get("preferred_username"),
             "roles": keycloak_roles,
-            "is_active": current_user_payload.get("email_verified", True) # veya Keycloak'taki 'enabled'
+            "is_active": current_user_payload.get("email_verified", True)
         }
-        print(f"TICKET_SERVICE_MAIN: Attempting to sync user {keycloak_id_str} with user_service...")
+
+        # --- Dahili Sırrı Al (Settings'den) ---
+        internal_secret = settings.internal_service_secret
+        if not internal_secret:
+             # Eğer sır config'de yüklenmemişse, user_service'i çağırmadan hata ver
+             print("HATA (TicketService-Create): internal_service_secret yüklenmemiş. User service çağrılamıyor.")
+             raise HTTPException(
+                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                 detail="Dahili sunucu yapılandırma hatası: Servis iletişim sırrı yüklenemedi."
+             )
+        # --- Sır Alındı ---
+
+        print(f"TICKET_SERVICE_MAIN: Kullanıcı {keycloak_id_str} user_service ile senkronize ediliyor...")
         async with httpx.AsyncClient() as client:
-            # user_service'deki endpoint'e POST yap
-            response = await client.post(f"{USER_SERVICE_URL}/users/sync-from-keycloak", json=user_sync_payload)
-            response.raise_for_status() # Hata varsa exception fırlat
-            synced_user = response.json()
-            print(f"TICKET_SERVICE_MAIN: User {synced_user.get('id')} synced/retrieved from user_service.")
-            # creator_id_uuid = uuid.UUID(synced_user.get("id")) # user_service'den dönen ID'yi kullan
-            creator_id_uuid = uuid.UUID(keycloak_id_str) # Keycloak ID'sini doğrudan kullanalım
+            # user_service'deki endpoint'e POST yaparken X-Internal-Secret başlığını ekle
+            response = await client.post(
+                f"{USER_SERVICE_URL}/users/sync-from-keycloak", # user_service URL'si
+                json=user_sync_payload, # Gönderilecek kullanıcı verisi
+                headers={ # <-- HEADERS PARAMETRESİ EKLENDİ
+                    "X-Internal-Secret": internal_secret # Vault'tan okunan sırrı ekle
+                }
+            )
+            # Hata durumunda exception fırlat (4xx, 5xx)
+            # user_service 401/403 dönerse (yanlış/eksik secret), bu da HTTPStatusError fırlatır
+            response.raise_for_status()
+            synced_user = response.json() # user_service'den dönen kullanıcı bilgisi
+            print(f"TICKET_SERVICE_MAIN: Kullanıcı {synced_user.get('id')} user_service tarafından senkronize edildi/getirildi.")
+            creator_id_uuid = uuid.UUID(keycloak_id_str) # Keycloak ID'sini UUID olarak kullan
 
     except httpx.HTTPStatusError as e:
-        print(f"ERROR (TicketService-Create): Failed to sync user with user_service. Status: {e.response.status_code}, Response: {e.response.text}")
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=f"Kullanıcı servisi ile senkronizasyon hatası: {e.response.status_code}")
+        # user_service'den gelen hatayı daha detaylı logla ve uygun status code ile yansıt
+        error_detail = f"Kullanıcı servisi ile senkronizasyon hatası: {e.response.status_code}"
+        try:
+            # user_service'den dönen hata mesajını almaya çalış
+            user_service_error = e.response.json()
+            error_detail += f" - {user_service_error.get('detail', e.response.text)}"
+        except Exception:
+            # JSON parse edilemezse ham yanıtı ekle
+             error_detail += f" - Yanıt: {e.response.text}"
+
+        print(f"HATA (TicketService-Create): User service ile senkronizasyon başarısız. Detaylar: {error_detail}")
+        # Eğer user_service 401/403 döndüyse (bizim secret doğrulamamızdan), bu kodu yansıt
+        status_code = e.response.status_code if e.response.status_code in [401, 403] else status.HTTP_503_SERVICE_UNAVAILABLE
+        raise HTTPException(status_code=status_code, detail=error_detail)
+
     except Exception as e:
-        print(f"ERROR (TicketService-Create): Unexpected error during user sync: {e}")
+        # httpx veya başka beklenmedik hatalar
+        print(f"HATA (TicketService-Create): Kullanıcı senkronizasyonu sırasında beklenmedik hata: {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Kullanıcı senkronizasyonu sırasında beklenmedik hata.")
 
-    # 2. Adım: Bileti oluştur
-    print(f"TICKET_SERVICE_MAIN: create_ticket request from user_sub: {keycloak_id_str} (UUID: {creator_id_uuid})")
+    # 2. Adım: Bileti oluştur (Bu kısım aynı kalıyor)
+    print(f"TICKET_SERVICE_MAIN: Bilet oluşturma isteği: user_sub={keycloak_id_str}, UUID={creator_id_uuid}")
     try:
         created_db_ticket = crud.create_ticket(
             db=db, ticket=ticket_in, creator_id=creator_id_uuid
         )
         return created_db_ticket
-    # ... (mevcut hata yönetimi bloklarınız) ...
     except IntegrityError as e:
         db.rollback()
-        print(f"ERROR (TicketService-Create): IntegrityError while creating ticket (after user sync attempt): {e}")
+        print(f"HATA (TicketService-Create): Bilet oluşturulurken IntegrityError: {e}")
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Bilet oluşturulurken veritabanı bütünlük hatası.")
     except Exception as e:
         db.rollback()
-        print(f"ERROR (TicketService-Create): Unexpected error while creating ticket (after user sync attempt): {e}")
+        print(f"HATA (TicketService-Create): Bilet oluşturulurken beklenmedik hata: {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Bilet oluşturulurken beklenmedik bir sunucu hatası oluştu.")
-
 
 @app.get("/tickets/", response_model=List[models.Ticket])
 async def read_tickets(

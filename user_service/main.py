@@ -13,7 +13,7 @@ from database_pkg import db_models
 from database_pkg.schemas import Role as RoleEnum # database_pkg.schemas'dan Role enum'ı
 from . import models # Güncellenmiş Pydantic modelleriniz
 from . import crud
-from .auth import get_current_user_payload # Token korumalı endpointler için
+from .auth import get_current_user_payload, verify_internal_secret # Token korumalı endpointler için
 from .config import get_settings, Settings # config.py'den settings
 
 # --- SADECE BİR KERE app TANIMI ---
@@ -62,21 +62,58 @@ async def read_root_main(settings: Settings = Depends(get_settings)): # Fonksiyo
     print(f"UserService Root - Configured Audience: {settings.keycloak.audience}") # Test için
     return {"message": "User Service API'ye hoş geldiniz! (Keycloak Odaklı)"}
 
-@app.post("/users/sync-from-keycloak", response_model=models.User, summary="Keycloak kullanıcısını lokal DB ile senkronize et/oluştur (JIT)")
+@app.post("/users/sync-from-keycloak", response_model=models.User, summary="Keycloak kullanıcısını lokal DB ile senkronize et/oluştur (JIT - İç Servis Çağrısı)")
 async def sync_user_from_keycloak(
-    user_data_from_service: models.UserCreateInternal, # ticket_service'ten gelen payload
+    # Artık token payload'u değil, doğrudan request body'sinden UserCreateInternal bekliyoruz.
+    # FastAPI, gelen JSON'u bu Pydantic modeline göre otomatik olarak doğrular.
+    user_data_to_sync: models.UserCreateInternal,
+    # Yeni eklediğimiz dahili sır doğrulama dependency'si.
+    # Bu fonksiyon çalışmadan önce verify_internal_secret çalışacak. Başarısız olursa endpoint hiç çalışmaz.
+    is_internal_request_valid: bool = Depends(verify_internal_secret),
     db: Session = Depends(get_db)
 ):
-    print(f"USER_SERVICE_MAIN: Received POST to /users/sync-from-keycloak for User ID: {user_data_from_service.id}, Email: {user_data_from_service.email}")
-    
-    db_user = crud.get_or_create_user(db, user_data=user_data_from_service)
-    
-    if not db_user:
-        print(f"ERROR (UserService-Sync): crud.get_or_create_user failed for user ID {user_data_from_service.id}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Kullanıcı senkronizasyonu sırasında veritabanı hatası.")
-    
-    print(f"USER_SERVICE_MAIN: User {db_user.id} ({db_user.email}) synced/retrieved successfully from local DB.")
-    return db_user # FastAPI otomatik olarak db_models.User'ı models.User'a dönüştürecek (from_attributes=True sayesinde)
+    """
+    Başka bir backend servisinden (örn: ticket_service) gelen JIT provisioning
+    isteğini işler. İstek, 'X-Internal-Secret' başlığı ile doğrulanmalıdır.
+    Gelen kullanıcı verilerini (request body'sinden alınır) kullanarak lokal
+    veritabanında kullanıcıyı oluşturur veya günceller.
+    """
+    # Eğer kod buraya ulaştıysa, verify_internal_secret dependency'si başarılı olmuştur.
+    # (is_internal_request_valid değişkenini kullanmak zorunda değiliz, dependency'nin varlığı yeterli)
+
+    # Gelen verinin Pydantic modeli (user_data_to_sync) zaten doğrulandı.
+    # crud.get_or_create_user fonksiyonuna doğrudan bu modeli verebiliriz.
+    print(f"USER_SERVICE_MAIN (sync): Dahili istekten kullanıcı senkronize ediliyor: ID={user_data_to_sync.id}, Email={user_data_to_sync.email}")
+
+    try:
+        # crud fonksiyonumuz zaten UserCreateInternal modelini bekliyordu 
+        db_user = crud.get_or_create_user(db, user_data=user_data_to_sync)
+        if not db_user:
+            # crud.get_or_create_user None dönerse (beklenmedik bir durum)
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Kullanıcı senkronizasyonu sırasında bir hata oluştu.")
+
+        # crud.get_or_create_user, db_models.User döndürür.
+        # response_model=models.User olduğu için FastAPI bunu otomatik olarak Pydantic modeline dönüştürür.
+        # Not: Bu otomatik dönüşüm, models.User içindeki 'roles' alanını nasıl dolduracak?
+        #      Eğer from_attributes=True kullanılıyorsa ve db_models.User'da 'roles' ilişkisi yoksa,
+        #      Pydantic modeli 'roles' alanını boş liste yapabilir veya DB'deki tek 'role' (enum) ile doldurmaya çalışabilir.
+        #      API yanıtında token'daki rolleri görmek istiyorsak, /users/me endpoint'indeki gibi manuel dönüşüm gerekebilir.
+        #      Şimdilik otomatik dönüşüme bırakıyoruz, testlerde yanıtı kontrol ederiz.
+        print(f"USER_SERVICE_MAIN (sync): Kullanıcı {db_user.id} başarıyla senkronize edildi/getirildi.")
+        return db_user
+
+    except IntegrityError as e:
+        db.rollback() # Hata durumunda işlemi geri al
+        print(f"HATA (UserService-Sync): Senkronizasyon sırasında IntegrityError: {e}")
+        # Bu genellikle e-posta zaten başka bir kullanıcı tarafından kullanılıyorsa olur.
+        # crud.get_or_create_user normalde bunu yakalayıp güncelleme yapmalı.
+        # Eğer yine de bu hata alınıyorsa, farklı bir sorun olabilir. 409 Conflict döndürelim.
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Kullanıcı senkronizasyonu sırasında veritabanı çakışması.")
+    except Exception as e:
+        db.rollback()
+        print(f"HATA (UserService-Sync): Senkronizasyon sırasında beklenmedik hata: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Kullanıcı senkronizasyonu sırasında beklenmedik sunucu hatası.")
+
 
 @app.get("/users/me", response_model=models.User, summary="Mevcut login olmuş kullanıcının bilgilerini getir")
 async def read_users_me(
@@ -117,4 +154,78 @@ async def read_users_me(
     print(f"USER_SERVICE_MAIN: /users/me request for user_sub: {keycloak_id_uuid}, returning: {db_user.email}")
     return db_user
 
-# Eski user creation ve internal endpoint'ler kaldırıldı.
+@app.get("/users/me", response_model=models.User, summary="Mevcut login olmuş kullanıcının bilgilerini getir")
+async def read_users_me(
+    current_user_payload: Annotated[Dict[str, Any], Depends(get_current_user_payload)],
+    db: Session = Depends(get_db)
+):
+    """
+    Gelen geçerli JWT token'ına ait kullanıcının bilgilerini döndürür.
+    Kullanıcı lokal veritabanında yoksa, token'dan alınan bilgilerle
+    Just-In-Time (JIT) olarak oluşturulur.
+    """
+    keycloak_id_str = current_user_payload.get("sub")
+    if not keycloak_id_str:
+        # Bu durum normalde get_current_user_payload tarafından yakalanmalı, ama yine de kontrol edelim.
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token'da 'sub' (Kullanıcı ID) bulunamadı.")
+
+    try:
+        keycloak_id_uuid = uuid.UUID(keycloak_id_str)
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token'daki 'sub' geçerli bir UUID değil.")
+
+    # 1. Kullanıcıyı lokal DB'de ara
+    db_user = crud.get_user_by_keycloak_id(db, keycloak_id=keycloak_id_uuid)
+
+    if db_user is None:
+        # 2. JIT Provisioning: Kullanıcı lokalde yok, token bilgileriyle oluştur
+        print(f"USER_SERVICE_MAIN (/users/me): User (sub: {keycloak_id_uuid}) not found locally. Attempting JIT provisioning.")
+
+        # Keycloak rollerini al (string listesi olarak)
+        keycloak_roles = current_user_payload.get("roles", [])
+        if not keycloak_roles and current_user_payload.get("realm_access"):
+            keycloak_roles = current_user_payload.get("realm_access", {}).get("roles", [])
+
+        # Token'dan gelen bilgilerle UserCreateInternal modelini doldur
+        user_data_to_sync = models.UserCreateInternal(
+            id=keycloak_id_uuid,
+            # Email ve full_name Pydantic/DB modelinde zorunluysa ve token'da yoksa placeholder kullan
+            email=current_user_payload.get("email", f"placeholder-{keycloak_id_uuid}@example.com"),
+            full_name=current_user_payload.get("name") or \
+                      f"{current_user_payload.get('given_name', '')} {current_user_payload.get('family_name', '')}".strip() or \
+                      current_user_payload.get("preferred_username", f"user-{keycloak_id_uuid}"),
+            roles=keycloak_roles, # Keycloak'tan gelen roller
+            is_active=current_user_payload.get("email_verified", True) # Keycloak'tan 'enabled' durumu alınabilir veya email_verified kullanılabilir
+        )
+
+        try:
+            # crud.get_or_create_user fonksiyonu kullanıcıyı oluşturur veya günceller (varsa)
+            db_user = crud.get_or_create_user(db, user_data=user_data_to_sync)
+            if not db_user: # Eğer bir şekilde kullanıcı oluşturulamazsa
+                 raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Kullanıcı senkronizasyonu sırasında bir hata oluştu.")
+            print(f"USER_SERVICE_MAIN (/users/me): User (sub: {keycloak_id_uuid}) JIT provisioned successfully.")
+        except IntegrityError as e:
+             # Genellikle email unique constraint hatası olabilir. Rollback yap ve tekrar sorgula.
+             db.rollback()
+             print(f"ERROR (UserService-/users/me-JIT): IntegrityError during JIT provisioning: {e}. Rolling back and re-fetching.")
+             db_user = crud.get_user_by_keycloak_id(db, keycloak_id=keycloak_id_uuid)
+             if not db_user: # Tekrar sorgulamada da bulunamazsa, beklenmedik bir durum.
+                 raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="JIT provisioning sırasında veritabanı hatası ve kullanıcı bulunamadı.")
+        except Exception as e:
+             db.rollback()
+             print(f"ERROR (UserService-/users/me-JIT): Unexpected error during JIT provisioning: {e}")
+             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="JIT provisioning sırasında beklenmedik sunucu hatası.")
+
+    # 3. Kullanıcı bilgilerini response_model'e (models.User) uygun olarak döndür
+    # DB'den gelen kullanıcı bilgisini ve token'daki rolleri birleştirerek Pydantic modelini oluşturuyoruz.
+    user_response = models.User(
+        id=db_user.id,
+        email=db_user.email,
+        full_name=db_user.full_name,
+        is_active=db_user.is_active,
+        created_at=db_user.created_at,
+        # response_model'deki 'roles' alanı string listesi bekliyor , bu yüzden token'daki rolleri kullanıyoruz.
+        roles=current_user_payload.get("roles", []) or current_user_payload.get("realm_access", {}).get("roles", [])
+        # Not: İsterseniz db_user.role (RoleEnum) bilgisini de farklı bir alanda döndürebilirsiniz.
+    )
+    return user_response
