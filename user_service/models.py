@@ -30,3 +30,6 @@ class User(UserBase):
 
     class Config:
         from_attributes = True # SQLAlchemy modelinden Pydantic modeline dönüşüm için
+
+class TenantCreateRequest(BaseModel):
+    name: str = Field(..., min_length=2, max_length=255, description="Oluşturulacak yeni tenant'ın (şirketin) adı")

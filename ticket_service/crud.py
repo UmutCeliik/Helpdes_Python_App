@@ -6,11 +6,12 @@ import uuid
 from database_pkg import db_models
 from . import models # Kendi Pydantic modelleri
 
-def create_ticket(db: Session, ticket: models.TicketCreate, creator_id: uuid.UUID) -> db_models.Ticket:
+def create_ticket(db: Session, ticket: models.TicketCreate, creator_id: uuid.UUID, tenant_id: uuid.UUID) -> db_models.Ticket: # tenant_id parametresi eklendi
     db_ticket = db_models.Ticket(
         title=ticket.title,
         description=ticket.description,
-        creator_id=creator_id
+        creator_id=creator_id,
+        tenant_id=tenant_id  # Yeni eklenen tenant_id alanı
     )
     db.add(db_ticket)
     db.commit()
