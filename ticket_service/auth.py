@@ -56,76 +56,79 @@ async def fetch_jwks_for_ticket_service(settings: Settings) -> Dict[str, Any]:
 class AuthHandlerTicketService:
     @staticmethod
     async def decode_token(token: str, settings: Settings) -> Optional[dict]:
+        # ... (metodun başındaki loglama ve kontroller aynı) ...
         print(f"TICKET_SERVICE_AUTH: Attempting to decode token. Expected audience: '{settings.keycloak.audience}', Expected issuer: '{settings.keycloak.issuer_uri}'")
         
         if not settings.keycloak.issuer_uri or not settings.keycloak.audience:
+            # ... (hata yönetimi aynı) ...
             print("ERROR (TicketService): Keycloak issuer_uri or audience not configured in settings.")
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Auth config error in TicketService: issuer or audience missing.")
-        
+            
         jwks = await fetch_jwks_for_ticket_service(settings)
         if not jwks or not jwks.get("keys"):
-             print(f"ERROR (TicketService): JWKS not found or no keys in JWKS. JWKS: {jwks}")
-             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Could not retrieve valid JWKS for token validation in TicketService.")
+            # ... (hata yönetimi aynı) ...
+            print(f"ERROR (TicketService): JWKS not found or no keys in JWKS. JWKS: {jwks}")
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Could not retrieve valid JWKS for token validation in TicketService.")
 
         try:
+            # ... (unverified_header, token_kid, rsa_key bulma mantığı aynı) ...
             unverified_header = jwt.get_unverified_header(token)
             token_kid = unverified_header.get("kid")
-            print(f"TICKET_SERVICE_AUTH: Token unverified header: {unverified_header}, Token KID: {token_kid}")
-
             if not token_kid:
-                print("ERROR (TicketService): Token header does not contain 'kid' (Key ID).")
                 raise JWTError("Token header missing 'kid'")
-
             rsa_key = {}
             for key_val in jwks["keys"]:
                 if key_val.get("kid") == token_kid:
-                    rsa_key = {
-                        "kty": key_val.get("kty"),
-                        "kid": key_val.get("kid"),
-                        "use": key_val.get("use"),
-                        "n": key_val.get("n"),
-                        "e": key_val.get("e")
-                    }
-                    if "alg" in key_val: 
-                        rsa_key["alg"] = key_val.get("alg")
-                    print(f"TICKET_SERVICE_AUTH: Found matching RSA key in JWKS for kid: {token_kid}")
+                    rsa_key = { "kty": key_val.get("kty"), "kid": key_val.get("kid"), "use": key_val.get("use"), "n": key_val.get("n"), "e": key_val.get("e")}
+                    if "alg" in key_val: rsa_key["alg"] = key_val.get("alg")
                     break
-            
             if not rsa_key:
-                available_kids = [k.get('kid') for k in jwks.get('keys', [])]
-                print(f"ERROR (TicketService): Could not find RSA key in JWKS for kid: {token_kid}. Available kids in JWKS: {available_kids}")
                 raise JWTError("TicketService: Unable to find appropriate key in JWKS matching token's kid")
-
-            # Token'ı doğrulamadan önce bazı claim'leri loglayalım
-            unverified_claims = jwt.get_unverified_claims(token)
-            print(f"TICKET_SERVICE_AUTH: Unverified token claims - iss: '{unverified_claims.get('iss')}', aud: '{unverified_claims.get('aud')}'")
 
             payload = jwt.decode(
                 token, 
                 rsa_key, 
-                algorithms=["RS256"], # Keycloak genellikle RS256 kullanır
+                algorithms=["RS256"], 
                 issuer=settings.keycloak.issuer_uri, 
-                audience=settings.keycloak.audience  # Bu, token'daki 'aud' claim'i ile eşleşmeli
+                audience=settings.keycloak.audience
             )
             print(f"TICKET_SERVICE_AUTH: Token successfully decoded. Payload 'sub': {payload.get('sub')}, 'aud': {payload.get('aud')}, 'iss': {payload.get('iss')}")
+
+            # --- YENİ EKLENEN KISIM ---
+            raw_groups = payload.get("groups", [])
+            cleaned_groups = []
+            if isinstance(raw_groups, list):
+                for group_path in raw_groups:
+                    if isinstance(group_path, str):
+                        while group_path.startswith("//"):
+                            group_path = group_path[1:]
+                        if not group_path.startswith("/"):
+                            group_path = "/" + group_path
+                        cleaned_groups.append(group_path)
+            
+            payload["tenant_groups"] = cleaned_groups
+            print(f"TICKET_SERVICE_AUTH: Tenant groups added to payload: {payload['tenant_groups']}")
+            # --- YENİ EKLENEN KISIM SONU ---
+
             return payload
 
-        except jwt.ExpiredSignatureError as e:
+        except jwt.ExpiredSignatureError as e: # Spesifik hataları loglayabiliriz
             print(f"ERROR (TicketService): Token ExpiredSignatureError: {e}")
             return None
+        # ... (diğer spesifik JWTError'lar ve genel Exception yakalama blokları aynı) ...
         except jwt.InvalidAudienceError as e:
-            # PyJWT'de InvalidAudienceError'un mesajı genellikle beklenen ve alınan audience'ı içerir.
             print(f"ERROR (TicketService): Token InvalidAudienceError: {e}")
             return None
         except jwt.InvalidIssuerError as e:
             print(f"ERROR (TicketService): Token InvalidIssuerError: {e}")
             return None
-        except JWTError as e: # Diğer JWT (jose) hataları
+        except JWTError as e: 
             print(f"ERROR (TicketService): General JWTError during token validation: {e}")
             return None
         except Exception as e:
             print(f"ERROR (TicketService): Unexpected error during token decoding: {type(e).__name__} - {e}")
             return None
+
 
 async def get_current_user_payload(
     token: str = Depends(oauth2_scheme), 

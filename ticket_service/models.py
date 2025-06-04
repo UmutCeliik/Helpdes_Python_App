@@ -11,7 +11,10 @@ class TicketBase(BaseModel):
     description: str = Field(..., min_length=10)
 
 class TicketCreate(TicketBase):
-    pass
+    # Agent/Admin'in belirli bir tenant için bilet oluşturmasını sağlamak amacıyla eklendi.
+    # Frontend bu alanı, eğer kullanıcı birden fazla tenanta hizmet veriyorsa gönderebilir.
+    tenant_id_override: Optional[uuid.UUID] = Field(None, description="Eğer agent/admin belirli bir tenant için bilet oluşturuyorsa, o tenantın ID'si") # YENİ ALAN
+
 
 class Ticket(TicketBase):
     id: uuid.UUID
