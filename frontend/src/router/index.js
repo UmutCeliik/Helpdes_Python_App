@@ -13,6 +13,8 @@ const AdminDashboardView = () => import('@/views/admin/AdminDashboardView.vue');
 const AdminTenantListView = () => import('@/views/admin/AdminTenantListView.vue');
 const AdminTenantCreateView = () => import('@/views/admin/AdminTenantCreateView.vue');
 const AdminTenantDetailView = () => import('@/views/admin/AdminTenantDetailView.vue'); // Bu dosyayı birazdan oluşturacağız
+const AdminUserListView = () => import('@/views/admin/AdminUserListView.vue'); 
+const AdminUserCreateView = () => import('@/views/admin/AdminUserCreateView.vue');
 
 
 const router = createRouter({
@@ -78,7 +80,19 @@ const router = createRouter({
           component: AdminTenantDetailView,
           props: true, // Route parametrelerinin component'e props olarak geçmesini sağlar
           meta: { requiresAuth: true, roles: ['general-admin'] }
-        }
+        },
+        {
+          path: 'admin/users', // Yeni yol: /admin/users
+          name: 'AdminUserList',
+          component: AdminUserListView, // Kullanılacak component
+          meta: { requiresAuth: true, roles: ['general-admin'] } // Sadece general-admin erişebilir
+        },
+        {
+          path: 'admin/users/new', // Yeni yol: /admin/users/new
+          name: 'AdminUserCreate',
+          component: AdminUserCreateView, // Kullanılacak component
+          meta: { requiresAuth: true, roles: ['general-admin'] } // Sadece general-admin erişebilir
+        },
         // Buraya diğer admin sayfaları (kullanıcı yönetimi vb.) eklenebilir
         // --- YENİ ADMIN YOLLARI SONU ---
       ]

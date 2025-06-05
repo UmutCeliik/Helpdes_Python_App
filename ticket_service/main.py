@@ -185,25 +185,30 @@ async def read_tickets_list(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings)
 ):
-    user_sub = current_user_payload.get('sub')
+    user_sub_str = current_user_payload.get('sub') # <--- KULLANICI SUB'INI AL
+    if not user_sub_str: # <--- SUB KONTROLÜ
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token ID (sub) yok")
+    user_sub_uuid = uuid.UUID(user_sub_str) # <--- SUB'I UUID'YE ÇEVİR
+
     user_roles = current_user_payload.get("roles", [])
     if not user_roles and current_user_payload.get("realm_access"):
         user_roles = current_user_payload.get("realm_access", {}).get("roles", [])
     
     user_tenant_groups_paths = current_user_payload.get("tenant_groups", [])
     
-    log_prefix = f"INFO (GET /tickets/ User: {user_sub}, Roles: {user_roles}, Groups: {user_tenant_groups_paths}):"
+    log_prefix = f"INFO (GET /tickets/ User: {user_sub_str}, Roles: {user_roles}, Groups: {user_tenant_groups_paths}):" # user_sub_str kullanıldı
     print(f"{log_prefix} Listing tickets.")
     
-    query = db.query(common_db_models.Ticket) # <-- DÜZELTME common_db_models KULLANILDI
+    query = db.query(common_db_models.Ticket)
 
     if "customer-user" in user_roles:
         if len(user_tenant_groups_paths) == 1:
             customer_tenant_path = user_tenant_groups_paths[0]
             customer_tenant_id = await get_group_id_from_path(customer_tenant_path, settings)
             if customer_tenant_id:
-                print(f"{log_prefix} customer-user filtering by tenant_id: {customer_tenant_id}")
-                query = query.filter(common_db_models.Ticket.tenant_id == customer_tenant_id) # <-- DÜZELTME
+                print(f"{log_prefix} customer-user filtering by tenant_id: {customer_tenant_id} AND creator_id: {user_sub_uuid}") # <--- LOG GÜNCELLENDİ
+                query = query.filter(common_db_models.Ticket.tenant_id == customer_tenant_id)
+                query = query.filter(common_db_models.Ticket.creator_id == user_sub_uuid) # <--- YENİ FİLTRE: Sadece kendi oluşturduğu biletler
             else:
                 print(f"WARN ({log_prefix}): Could not resolve tenant ID for customer-user path {customer_tenant_path}. Returning no tickets for this user.")
                 return [] 
@@ -213,7 +218,7 @@ async def read_tickets_list(
             
     elif "agent" in user_roles or "helpdesk_admin" in user_roles:
         if user_tenant_groups_paths:
-            agent_tenant_ids: List[uuid.UUID] = [] # Tip belirttik
+            agent_tenant_ids: List[uuid.UUID] = []
             for group_path in user_tenant_groups_paths:
                 resolved_id = await get_group_id_from_path(group_path, settings)
                 if resolved_id:
@@ -221,23 +226,24 @@ async def read_tickets_list(
             
             if agent_tenant_ids:
                 print(f"{log_prefix} agent/helpdesk_admin filtering by tenant_ids: {agent_tenant_ids}")
-                query = query.filter(common_db_models.Ticket.tenant_id.in_(agent_tenant_ids)) # <-- DÜZELTME
+                query = query.filter(common_db_models.Ticket.tenant_id.in_(agent_tenant_ids))
             else: 
                 print(f"WARN ({log_prefix}): Could not resolve any tenant IDs for agent/helpdesk_admin or no groups assigned. Returning no tickets.")
                 return []
         else: 
             print(f"WARN ({log_prefix}): agent/helpdesk_admin not assigned to any tenant groups. Returning no tickets.")
             return []
-
+    
     elif "general-admin" in user_roles:
         print(f"{log_prefix} general-admin accessing all tickets (no tenant filter applied).")
+        # general-admin için ek filtre yok, tüm biletleri görebilir.
         pass 
         
     else: 
         print(f"WARN ({log_prefix}): Unknown role or not authorized to list tickets. Returning no tickets.")
         return []
 
-    db_tickets = query.order_by(common_db_models.Ticket.created_at.desc()).offset(skip).limit(limit).all() # <-- DÜZELTME
+    db_tickets = query.order_by(common_db_models.Ticket.created_at.desc()).offset(skip).limit(limit).all()
     return db_tickets
 
 
@@ -279,9 +285,13 @@ async def read_ticket(
 
     if ticket_tenant_id in allowed_tenant_ids_for_user:
         if "customer-user" in user_roles:
-            can_access = True # Müşteri, kendi tenant'ındaki bileti görebilir.
-            # İsteğe bağlı: Sadece kendi oluşturduğu biletler için -> and str(db_ticket.creator_id) == user_sub_str
-            print(f"{log_prefix} customer_user accessing ticket within their tenant.")
+            # <--- YENİ/DEĞİŞEN SATIR BAŞLANGICI ---
+            if str(db_ticket.creator_id) == user_sub_str: # Kullanıcı ID'si UUID olduğu için string'e çevirerek karşılaştır
+                can_access = True 
+                print(f"{log_prefix} customer_user accessing own ticket within their tenant.")
+            else:
+                print(f"ERROR ({log_prefix}): customer_user ({user_sub_str}) trying to access ticket ({ticket_id}) not created by them (creator: {db_ticket.creator_id}) within their tenant.")
+            # <--- YENİ/DEĞİŞEN SATIR SONU ---
         elif "agent" in user_roles or "helpdesk_admin" in user_roles:
             can_access = True
             print(f"{log_prefix} agent/helpdesk_admin accessing ticket within their assigned tenant.")
@@ -316,6 +326,12 @@ async def update_ticket_status(
 
     ticket_tenant_id = db_ticket.tenant_id
     can_update = False
+
+    # <--- YENİ KONTROL BAŞLANGICI ---
+    if "customer-user" in user_roles:
+        print(f"ERROR ({log_prefix}): customer-user ({user_sub_str}) not allowed to update ticket {ticket_id} via this endpoint.")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Bilet güncelleme yetkiniz yok (customer-user).")
+    # <--- YENİ KONTROL SONU ---
 
     if "general-admin" in user_roles:
         can_update = True 
@@ -367,7 +383,7 @@ async def delete_ticket_endpoint(
     if "general-admin" in user_roles:
         can_delete = True
         print(f"{log_prefix} general-admin deleting ticket {ticket_id} in tenant {ticket_tenant_id}.")
-    elif "helpdesk_admin" in user_roles: # Sadece helpdesk_admin (ve general-admin) silebilsin
+    elif "helpdesk-admin" in user_roles:
         allowed_tenant_ids_for_user: List[uuid.UUID] = []
         for group_path in user_tenant_groups_paths:
             resolved_id = await get_group_id_from_path(group_path, settings)
