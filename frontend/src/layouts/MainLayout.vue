@@ -71,6 +71,7 @@ export default {
       if (authStore.userRoles && authStore.userRoles.includes('general-admin')) {
         items.push({ title: 'Admin Paneli', icon: 'mdi-shield-crown', route: '/admin' });
         items.push({ title: 'Tenant Yönetimi', icon: 'mdi-domain', route: '/admin/tenants' });
+        items.push({ title: 'Kullanıcı Yönetimi', icon: 'mdi-account-group', route: '/admin/users' });
       }
       return items;
     });
