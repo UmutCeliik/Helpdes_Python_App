@@ -18,6 +18,9 @@ if main_dotenv_path.exists():
 else:
      print(f"TicketService: Main .env file not found at {main_dotenv_path}")
 
+class DatabaseSettings(BaseModel):
+    url: str = Field(default=os.getenv("DATABASE_URL", ""))
+
 class KeycloakSettings(BaseModel):
     # Regular OIDC settings for validating incoming user tokens
     issuer_uri: str = Field(default=os.getenv("KEYCLOAK_ISSUER_URI", ""))
@@ -41,6 +44,7 @@ class VaultSettings(BaseModel):
     internal_secret_path: str = Field(default=os.getenv("VAULT_INTERNAL_SECRET_PATH", "secret/data/helpdesk/internal-communication"))
 
 class Settings(BaseModel):
+    database: DatabaseSettings = DatabaseSettings()
     keycloak: KeycloakSettings = KeycloakSettings()
     vault: VaultSettings = VaultSettings()
     internal_service_secret: Optional[str] = None

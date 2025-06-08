@@ -1,13 +1,27 @@
 # user_service/models.py
 from __future__ import annotations
-
+from enum import Enum  # Role için Enum importu gerekli
 from pydantic import BaseModel, Field, EmailStr
 from typing import Optional, List
 import uuid
 from datetime import datetime
-# Ortak Role enum'ını import et
-from database_pkg.schemas import Role
-from database_pkg.schemas import CompanyBasicInfo
+
+class Role(str, Enum):
+    """Veritabanı ve Pydantic modellerinde kullanılacak roller."""
+    AGENT = "agent"
+    EMPLOYEE = "employee"
+    # Proje raporlarında geçen diğer rolleri de buraya ekleyebiliriz:
+    GENERAL_ADMIN = "general-admin"
+    HELPDESK_ADMIN = "helpdesk-admin"
+    CUSTOMER_USER = "customer-user"
+
+class CompanyBasicInfo(BaseModel):
+    """API yanıtlarında temel şirket bilgisi için kullanılacak model."""
+    id: uuid.UUID
+    name: str
+
+    class Config:
+        from_attributes = True
 
 class UserBase(BaseModel):
     email: EmailStr = Field(..., description="Kullanıcının e-posta adresi (benzersiz olmalı)")
@@ -18,7 +32,7 @@ class UserCreateInternal(UserBase): # Adını değiştirdim, bu artık dışarı
     # Keycloak'tan gelen rolleri bir string listesi olarak alabiliriz
     roles: Optional[List[str]] = Field(default_factory=list, description="Kullanıcının Keycloak'tan gelen rolleri")
     is_active: bool = Field(default=True, description="Kullanıcının Keycloak'taki durumu (enabled)")
-    # Şifre artık burada yok
+    keycloak_groups: Optional[List[str]] = Field(default_factory=list, description="Kullanıcının Keycloak'tan gelen grup yolları")
 
 class AdminUserUpdateRequest(BaseModel):
     full_name: Optional[str] = Field(None, min_length=2, max_length=100, description="Kullanıcının yeni tam adı")
@@ -84,3 +98,31 @@ class AdminUserCreateRequest(BaseModel):
                 "tenant_id": "şirket-uuid-buraya-gelecek" # Opsiyonel
             }
         }
+
+class CompanyBase(BaseModel):
+    name: str = Field(..., min_length=2, max_length=255, description="Şirket (tenant) adı")
+    status: Optional[str] = Field("active", max_length=50, description="Tenant durumu (örn: active, inactive)")
+
+class CompanyCreate(CompanyBase):
+    keycloak_group_id: uuid.UUID = Field(..., description="Bu şirketi temsil eden Keycloak grubunun ID'si")
+
+class CompanyUpdate(BaseModel):
+    name: Optional[str] = Field(None, min_length=2, max_length=255)
+    status: Optional[str] = Field(None, max_length=50)
+
+class CompanyInDBBase(CompanyBase):
+    id: uuid.UUID
+    keycloak_group_id: uuid.UUID
+    status: str
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+class Company(CompanyInDBBase):
+    pass
+
+class CompanyList(BaseModel):
+    items: List[Company]
+    total: int

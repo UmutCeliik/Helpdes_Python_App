@@ -2,9 +2,10 @@
 from sqlalchemy.orm import Session, joinedload
 from typing import List, Optional
 import uuid
-# Ortak DB modelini ve Ticket Pydantic modellerini import et
-from database_pkg import db_models
-from . import models # Kendi Pydantic modelleri
+
+# Kendi servisimize ait SQLAlchemy ve Pydantic modellerini import ediyoruz
+from . import db_models
+from . import models
 
 def create_ticket(db: Session, ticket: models.TicketCreate, creator_id: uuid.UUID, tenant_id: uuid.UUID) -> db_models.Ticket: # tenant_id parametresi eklendi
     db_ticket = db_models.Ticket(
@@ -60,13 +61,6 @@ def get_ticket_with_details(db: Session, ticket_id: uuid.UUID) -> Optional[db_mo
         .filter(db_models.Ticket.id == ticket_id)
         .first()
     )
-
-def get_company_by_keycloak_group_id(db: Session, keycloak_group_id: uuid.UUID) -> Optional[db_models.Company]:
-    """
-    Verilen Keycloak grup ID'sine sahip şirketi lokal veritabanından getirir.
-    """
-    # Not: db_models.Company'de keycloak_group_id UUID tipinde olmalı
-    return db.query(db_models.Company).filter(db_models.Company.keycloak_group_id == keycloak_group_id).first()
 
 def create_comment(db: Session, comment: models.CommentCreate, ticket_id: uuid.UUID, author_id: uuid.UUID) -> db_models.Comment:
     """
