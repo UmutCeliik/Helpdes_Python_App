@@ -1,3 +1,4 @@
+// frontend/src/views/admin/AdminTenantDetailView.vue
 <template>
   <v-container>
     <v-row align="center" class="mb-4">
@@ -15,9 +16,20 @@
       Detaylar alınırken hata oluştu: {{ tenantStore.detailsError }}
     </v-alert>
 
+    <v-alert v-if="updateSuccessMessage" type="success" density="compact" closable class="mb-4" @update:modelValue="updateSuccessMessage = ''">
+      {{ updateSuccessMessage }}
+    </v-alert>
+    <v-alert v-if="tenantStore.updateError" type="error" density="compact" closable class="mb-4" @update:modelValue="tenantStore.updateError = null">
+      Güncelleme sırasında hata: {{ tenantStore.updateError }}
+    </v-alert>
+
     <v-card v-if="tenant && !tenantStore.isLoadingDetails && !tenantStore.detailsError">
-      <v-card-title class="pb-0">
-        Tenant: {{ tenant.name }}
+      <v-card-title class="pb-0 d-flex justify-space-between align-center">
+        <span>Tenant: {{ tenant.name }}</span>
+        <v-btn v-if="!editMode" color="info" variant="tonal" size="small" @click="toggleEditMode">
+          <v-icon left>mdi-pencil</v-icon>
+          Adı Düzenle
+        </v-btn>
       </v-card-title>
       <v-card-subtitle class="pt-0">
         ID: {{ tenant.id }}
@@ -26,9 +38,36 @@
       <v-list density="compact">
         <v-list-item>
           <v-list-item-title class="font-weight-bold">Adı:</v-list-item-title>
-          <v-list-item-subtitle>{{ tenant.name }}</v-list-item-subtitle>
+          <v-list-item-subtitle v-if="!editMode">{{ tenant.name }}</v-list-item-subtitle>
+          <v-form v-else @submit.prevent="handleNameUpdate" ref="tenantNameForm">
+            <v-text-field
+              v-model="editableTenantName"
+              label="Yeni Tenant Adı"
+              :rules="tenantNameRules"
+              variant="outlined"
+              density="compact"
+              class="mt-2"
+              :disabled="tenantStore.isUpdating"
+              autofocus
+            ></v-text-field>
+            <div class="mt-2">
+              <v-btn 
+                color="primary" 
+                type="submit" 
+                class="mr-2"
+                :loading="tenantStore.isUpdating"
+                size="small"
+              >Kaydet</v-btn>
+              <v-btn 
+                variant="tonal" 
+                @click="cancelEditMode"
+                :disabled="tenantStore.isUpdating"
+                size="small"
+              >İptal</v-btn>
+            </div>
+          </v-form>
         </v-list-item>
-        
+
         <v-list-item>
           <v-list-item-title class="font-weight-bold">Keycloak Grup ID:</v-list-item-title>
           <v-list-item-subtitle style="font-family: monospace;">{{ tenant.keycloak_group_id }}</v-list-item-subtitle>
@@ -40,7 +79,7 @@
             <v-chip :color="tenant.status === 'active' ? 'green' : 'orange'" size="small" label>
               {{ tenant.status === 'active' ? 'Aktif' : 'Pasif' }}
             </v-chip>
-          </v-list-item-subtitle>
+            </v-list-item-subtitle>
         </v-list-item>
 
         <v-list-item>
@@ -56,7 +95,7 @@
 
       <v-card-actions>
         <v-spacer></v-spacer>
-        <v-btn color="primary" variant="tonal" @click="refreshDetails">Yenile</v-btn>
+        <v-btn color="primary" variant="text" @click="refreshDetails" :disabled="editMode">Yenile</v-btn>
       </v-card-actions>
     </v-card>
     
@@ -67,22 +106,30 @@
 </template>
 
 <script setup>
-import { onMounted, computed, watch } from 'vue';
-import { useRoute } from 'vue-router'; // useRoute import edildi
+import { onMounted, computed, watch, ref } from 'vue'; // ref eklendi
+import { useRoute } from 'vue-router';
 import { useTenantStore } from '@/stores/tenantStore';
-import { storeToRefs } from 'pinia'; // storeToRefs reaktif state'ler için
+import { storeToRefs } from 'pinia';
 
-const route = useRoute(); // Mevcut route objesini almak için
+const route = useRoute();
 const tenantStore = useTenantStore();
 
-// Store'dan reaktif state'leri al
-const { currentTenantDetails: tenant, isLoadingDetails, detailsError } = storeToRefs(tenantStore);
+const { 
+  currentTenantDetails: tenant, 
+  isLoadingDetails, 
+  detailsError,
+  isUpdating, // tenantStore'dan isUpdating (veya benzeri) state'i
+  updateError  // tenantStore'dan updateError (veya benzeri) state'i
+} = storeToRefs(tenantStore);
 
-// Route parametresinden tenant ID'sini al (bu reaktif olmayabilir, bu yüzden watch da kullanacağız)
+const editMode = ref(false);
+const editableTenantName = ref('');
+const tenantNameForm = ref(null); // Form referansı
+const updateSuccessMessage = ref('');
+
 const tenantIdFromRoute = computed(() => route.params.id);
 
-// Tarih formatlama yardımcı fonksiyonu
-function formatDateTime(dateTimeString) {
+function formatDateTime(dateTimeString) { /* ... (öncekiyle aynı) ... */ 
   if (!dateTimeString) return 'N/A';
   try {
     return new Date(dateTimeString).toLocaleString('tr-TR', {
@@ -96,25 +143,78 @@ function formatDateTime(dateTimeString) {
 
 async function fetchDetails(id) {
   if (id) {
-    console.log(`AdminTenantDetailView: Fetching details for tenant ID: ${id}`);
+    updateSuccessMessage.value = ''; // Başarı mesajını temizle
+    tenantStore.updateError = null;  // Önceki güncelleme hatalarını temizle
     await tenantStore.fetchTenantDetails(id);
   }
 }
 
-// Component yüklendiğinde tenant detaylarını çek
 onMounted(() => {
   fetchDetails(tenantIdFromRoute.value);
 });
 
-// Eğer kullanıcı aynı component üzerindeyken farklı bir tenant ID'sine giderse
-// (örn: tarayıcıda ID'yi manuel değiştirirse veya ileride bir "sonraki/önceki tenant" butonu olursa)
-// props.id (veya route.params.id) değiştiğinde veriyi yeniden çek.
-watch(tenantIdFromRoute, (newId) => {
-  fetchDetails(newId);
+watch(tenantIdFromRoute, (newId, oldId) => {
+  if (newId !== oldId) {
+    editMode.value = false; // Tenant değişirse düzenleme modundan çık
+    fetchDetails(newId);
+  }
 });
 
+watch(tenant, (newTenant) => {
+  if (newTenant && !editMode.value) { // Sadece editMode kapalıyken ve tenant varsa senkronize et
+    editableTenantName.value = newTenant.name;
+  }
+});
+
+const tenantNameRules = [
+  v => !!v || 'Tenant adı gerekli.',
+  v => (v && v.length >= 2) || 'Tenant adı en az 2 karakter olmalı.',
+  v => (v && v.length <= 255) || 'Tenant adı en fazla 255 karakter olabilir.',
+];
+
+function toggleEditMode() {
+  editMode.value = !editMode.value;
+  if (editMode.value && tenant.value) {
+    editableTenantName.value = tenant.value.name; // Düzenleme moduna geçerken mevcut adı al
+    updateSuccessMessage.value = ''; // Başarı mesajını temizle
+    tenantStore.updateError = null;  // Hata mesajını temizle
+  }
+}
+
+function cancelEditMode() {
+  editMode.value = false;
+  if (tenant.value) {
+    editableTenantName.value = tenant.value.name; // İptal edince orijinal ada geri dön
+  }
+  tenantStore.updateError = null; // Hata mesajını temizle
+}
+
+async function handleNameUpdate() {
+  if (!tenant.value || !tenant.value.id) return;
+  
+  const { valid } = await tenantNameForm.value.validate();
+  if (!valid) return;
+
+  updateSuccessMessage.value = '';
+  tenantStore.updateError = null;
+
+  const success = await tenantStore.updateTenant(tenant.value.id, { name: editableTenantName.value });
+
+  if (success) {
+    updateSuccessMessage.value = `Tenant adı başarıyla '${editableTenantName.value}' olarak güncellendi.`;
+    // fetchDetails(tenant.value.id); // Veriyi yeniden çekerek store ve `tenant` ref'ini güncelle
+    // VEYA store'daki updateTenant zaten currentTenantDetails'i güncelliyorsa gerek yok.
+    // Şimdilik store'un güncellediğini varsayalım, fetchTenantDetails() bu işi yapacak.
+    await fetchDetails(tenant.value.id); // Detayları yeniden çekerek formu ve başlığı güncelle
+    editMode.value = false; 
+  }
+  // Hata mesajı zaten tenantStore.updateError üzerinden gösterilecek
+}
+
 function refreshDetails() {
-    fetchDetails(tenantIdFromRoute.value);
+  if (!editMode.value) { // Sadece düzenleme modunda değilsek yenile
+     fetchDetails(tenantIdFromRoute.value);
+  }
 }
 </script>
 
@@ -123,7 +223,7 @@ function refreshDetails() {
   font-weight: bold;
 }
 .v-card-subtitle {
-  margin-top: -4px; /* Başlık ve alt başlık arasını biraz daraltmak için */
+  margin-top: -4px;
   padding-bottom: 8px;
 }
 </style>

@@ -15,7 +15,7 @@ const AdminTenantCreateView = () => import('@/views/admin/AdminTenantCreateView.
 const AdminTenantDetailView = () => import('@/views/admin/AdminTenantDetailView.vue'); // Bu dosyayı birazdan oluşturacağız
 const AdminUserListView = () => import('@/views/admin/AdminUserListView.vue'); 
 const AdminUserCreateView = () => import('@/views/admin/AdminUserCreateView.vue');
-
+const AdminUserEditView = () => import('@/views/admin/AdminUserEditView.vue');
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -91,6 +91,13 @@ const router = createRouter({
           path: 'admin/users/new', // Yeni yol: /admin/users/new
           name: 'AdminUserCreate',
           component: AdminUserCreateView, // Kullanılacak component
+          meta: { requiresAuth: true, roles: ['general-admin'] } // Sadece general-admin erişebilir
+        },
+        {
+          path: 'admin/users/edit/:userId', // Dinamik segment :userId
+          name: 'AdminUserEdit', // Rota adı
+          component: AdminUserEditView,
+          props: true, // Route parametrelerinin component'e props olarak geçmesini sağlar
           meta: { requiresAuth: true, roles: ['general-admin'] } // Sadece general-admin erişebilir
         },
         // Buraya diğer admin sayfaları (kullanıcı yönetimi vb.) eklenebilir

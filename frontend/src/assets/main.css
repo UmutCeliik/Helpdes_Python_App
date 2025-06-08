@@ -25,6 +25,9 @@ a,
   }
 }
 
+html, body, .v-application {
+  font-family: 'Open Sans', sans-serif !important;
+}
 /* Medya sorgusu içindeki layout stilleri Vuetify ile çakışır */
 /* @media (min-width: 1024px) { */
   /* body { */

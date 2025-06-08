@@ -7,6 +7,7 @@ import uuid
 from datetime import datetime
 # Ortak Role enum'ını import et
 from database_pkg.schemas import Role
+from database_pkg.schemas import CompanyBasicInfo
 
 class UserBase(BaseModel):
     email: EmailStr = Field(..., description="Kullanıcının e-posta adresi (benzersiz olmalı)")
@@ -46,14 +47,10 @@ class AdminUserUpdateRequest(BaseModel):
 
 class User(UserBase):
     id: uuid.UUID
-    # Lokal DB'deki 'role' enum'ını mı kullanacağız, yoksa Keycloak'tan gelen string listesini mi?
-    # Şimdilik Keycloak'tan gelen string listesini yansıtalım.
-    # Veya lokal DB'deki role'ü de ayrıca gösterebiliriz (eğer senkronize ediyorsak).
-    # Bu kısım multi-tenancy'de daha da netleşecek.
-    # Şimdilik basit tutalım:
-    roles: Optional[List[str]] = Field(default_factory=list) # JIT ile Keycloak'tan gelen roller eklenebilir
+    roles: Optional[List[str]] = Field(default_factory=list)
     is_active: bool
     created_at: datetime
+    company: Optional[CompanyBasicInfo] = None # YENİ ALAN: Kullanıcının atandığı şirket
 
     class Config:
         from_attributes = True # SQLAlchemy modelinden Pydantic modeline dönüşüm için

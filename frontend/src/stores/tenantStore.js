@@ -10,15 +10,18 @@ export const useTenantStore = defineStore('tenants', () => {
   // State
   const tenants = ref([]);
   const totalTenants = ref(0);
-  const isLoading = ref(false); // Genel yüklenme (listeleme için)
-  const isCreating = ref(false); // Oluşturma için ayrı bir yüklenme durumu
-  const error = ref(null); // Genel hata
-  const createError = ref(null); // Oluşturma hatası
-  const isUpdating = ref(false); // Güncelleme için yüklenme durumu
-  const updateError = ref(null); // Güncelleme hatası
-  const currentTenantDetails = ref(null); // Tek bir tenant'ın detayları için
-  const isLoadingDetails = ref(false); // Detay yükleme durumu için
-  const detailsError = ref(null); // Detay alma hatası için
+  const isLoading = ref(false);
+  const isCreating = ref(false);
+  const isUpdating = ref(false);
+  const error = ref(null);
+  const createError = ref(null);
+  const updateError = ref(null);
+  const currentTenantDetails = ref(null);
+  const isLoadingDetails = ref(false);
+  const detailsError = ref(null);
+  const isDeleting = ref(false);
+  const deleteError = ref(null);
+
 
   // Actions
   async function fetchTenants(page = 1, limit = 10) { // skip yerine page alıp skip'i hesaplayabiliriz
@@ -158,21 +161,45 @@ export const useTenantStore = defineStore('tenants', () => {
     }
   }
 
+  async function deleteTenant(tenantId) {
+    this.isDeleting = true;
+    this.deleteError = null;
+    try {
+      const url = `${USER_SERVICE_BASE_URL}/admin/tenants/${tenantId}`;
+      console.log('TenantStore: Deleting tenant with ID:', tenantId, 'at URL:', url);
+      await apiClient.delete(url); // Backend 204 No Content dönebilir
+      
+      console.log('TenantStore: Tenant deleted successfully from backend.');
+      // Silme sonrası listeyi yenile
+      await this.fetchTenants(1, 10); // Sayfa 1'e dönüp listeyi yenile
+      return true; // Başarı durumu
+    } catch (err) {
+      console.error('TenantStore: Error deleting tenant:', err.response || err.message || err);
+      this.deleteError = err.response?.data?.detail || 'Tenant silinirken bir hata oluştu.';
+      return false; // Hata durumu
+    } finally {
+      this.isDeleting = false;
+    }
+  }
+
   return {
     tenants,
     totalTenants,
     isLoading,
-    error,
-    fetchTenants,
     isCreating,
-    createError,
-    createTenant,
     isUpdating,
+    error,
+    createError,
     updateError,
-    updateTenant,
     currentTenantDetails,
     isLoadingDetails,
     detailsError,
+    isDeleting,   // YENİ: Dışarıya aç
+    deleteError,  // YENİ: Dışarıya aç
+    fetchTenants,
+    createTenant,
+    updateTenant,
     fetchTenantDetails,
+    deleteTenant, // YENİ: Dışarıya aç
   };
 });

@@ -13,7 +13,12 @@ class Role(str, Enum):
     # Keycloak'ta tanımladığınız diğer rolleri de eklemek isteyebilirsiniz.
     # Şimdilik mevcut haliyle bırakıyorum.
 
+class CompanyBasicInfo(BaseModel):
+    id: uuid.UUID
+    name: str
 
+    class Config:
+        from_attributes = True
 # --- YENİ EKLENEN COMPANY (TENANT) PYDANTIC MODELLERİ ---
 
 class CompanyBase(BaseModel):

@@ -283,8 +283,7 @@ const navigateToCreateUser = () => {
 };
 
 const editUser = (userId) => {
-  // router.push({ name: 'AdminUserEdit', params: { userId: userId } }); // Bu route'u daha sonra ekleyeceğiz
-  showSnackbar(`Kullanıcı düzenleme (ID: ${userId}) sayfası henüz hazır değil.`, 'info');
+  router.push({ name: 'AdminUserEdit', params: { userId: userId } });
 };
 
 const deleteDialog = ref(false);

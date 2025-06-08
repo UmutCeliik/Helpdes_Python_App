@@ -1,12 +1,12 @@
-<script setup>
-// Bu script bölümü şimdilik boş kalabilir veya
-// ileride global watcher'lar (örn: auth durumu izleme) için kullanılabilir.
-// import { RouterView } from 'vue-router' // RouterView otomatik import ediliyor olabilir
-</script>
-
 <template>
   <router-view />
+  <GlobalSnackbar /> 
 </template>
+
+<script setup>
+import GlobalSnackbar from '@/components/GlobalSnackbar.vue'; // YENİ EKLENEN SATIR
+</script>
+
 
 <style>
 /* App.vue'ya özel stiller kaldırıldı.
