@@ -68,7 +68,7 @@
           </v-btn>
         </template>
         <v-list density="compact" nav>
-          <v-list-item @click="() => { alert('Profil sayfası henüz hazır değil.'); }" value="profile">
+          <v-list-item :to="{ name: 'Profile' }" value="profile">
             <template v-slot:prepend>
               <v-icon>mdi-account-box-outline</v-icon>
             </template>

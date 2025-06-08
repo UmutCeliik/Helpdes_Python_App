@@ -1,227 +1,117 @@
 # user_service/main.py
-from __future__ import annotations
 
-from fastapi import FastAPI, HTTPException, status, Depends, Header, Response
-from typing import Annotated, Dict, Any, List, Optional # List eklendi
+from __future__ import annotations
 import uuid
-from sqlalchemy.orm import Session
-from sqlalchemy.schema import CreateSchema # Şema oluşturmak için
-from sqlalchemy.exc import ProgrammingError, IntegrityError
+from contextlib import asynccontextmanager
+from typing import Annotated, Dict, Any, List, Optional
+
+import httpx
+from fastapi import FastAPI, Depends, HTTPException, status, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-import httpx
+from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 
-# Ortak ve yerel modülleri import et
-from database_pkg.database import engine, Base, get_db, SessionLocal
-from database_pkg import db_models # SQLAlchemy DB Modelleri
-# from database_pkg.schemas import Role as RoleEnum # common_schemas.Role olarak kullanılacak
-from database_pkg import schemas as common_schemas, database # Ortak Pydantic Şemaları (Role, Company vb.)
-
-from . import models as user_models # user_service'e özel Pydantic modelleri
-from . import crud as user_crud # user_service için CRUD fonksiyonları
-from .auth import get_current_user_payload, verify_internal_secret # Token korumalı endpointler için
-from .config import get_settings, Settings # config.py'den settings
-from . import company_crud # Company CRUD fonksiyonları
-from .keycloak_api_helpers import create_keycloak_group # Keycloak'ta grup oluşturma helper'ı
-from . import keycloak_api_helpers
-
-async def sync_all_users_from_keycloak_on_startup(db: Session, settings: Settings):
-    print("BAŞLANGIÇ SENKRONİZASYONU: Keycloak kullanıcıları senkronize ediliyor...")
-    synced_count = 0
-    created_count = 0
-    updated_count = 0
-    error_count = 0
-
-    try:
-        # Keycloak'tan tüm kullanıcıları çekmek için bir helper fonksiyonunuz olmalı
-        # Bu fonksiyon sayfalama yapmalı ve tüm kullanıcıları getirmelidir.
-        # Şimdilik böyle bir fonksiyon olduğunu varsayalım:
-        # all_kc_users_representation = await keycloak_api_helpers.get_all_keycloak_users_paginated(settings)
-        
-        # Basitleştirilmiş örnek: Keycloak Admin API'den kullanıcıları doğrudan çekme (sayfalama gerekebilir)
-        admin_token = await keycloak_api_helpers.get_admin_api_token(settings)
-        if not admin_token:
-            print("HATA (Startup Sync): Admin token alınamadı, kullanıcı senkronizasyonu atlanıyor.")
-            return
-
-        users_url = f"{settings.keycloak.admin_api_realm_url}/users"
-        # Keycloak genellikle varsayılan olarak 100 kullanıcı döndürür, sayfalama için 'first' ve 'max' parametreleri kullanılır.
-        # Gerçek bir implementasyonda tüm kullanıcıları almak için bir döngü ve sayfalama gerekir.
-        # Örnek olarak ilk 1000 kullanıcıyı alalım:
-        params = {"max": 1000} # Üretimde bu değeri ve sayfalama mantığını gözden geçirin
-        headers = {"Authorization": f"Bearer {admin_token}"}
-        
-        all_kc_users_representation = []
-        async with httpx.AsyncClient() as client:
-            response = await client.get(users_url, headers=headers, params=params)
-            if response.status_code == 200:
-                all_kc_users_representation = response.json()
-            else:
-                print(f"HATA (Startup Sync): Keycloak'tan kullanıcılar çekilemedi. Status: {response.status_code}")
-                return
-
-        if not all_kc_users_representation:
-            print("BİLGİ (Startup Sync): Keycloak'ta senkronize edilecek kullanıcı bulunamadı.")
-            return
-
-        for kc_user_rep in all_kc_users_representation:
-            try:
-                user_id_str = kc_user_rep.get("id")
-                if not user_id_str:
-                    print(f"UYARI (Startup Sync): ID'si olmayan Keycloak kullanıcısı: {kc_user_rep.get('username')}")
-                    error_count += 1
-                    continue
-
-                # UserCreateInternal için veri hazırla
-                user_create_data = user_models.UserCreateInternal(
-                    id=uuid.UUID(user_id_str),
-                    email=kc_user_rep.get("email"),
-                    full_name=f"{kc_user_rep.get('firstName', '')} {kc_user_rep.get('lastName', '')}".strip(),
-                    roles=kc_user_rep.get("realmRoles", []), # Keycloak UserRepresentation'dan roller
-                    is_active=kc_user_rep.get("enabled", False)
-                )
-                
-                # crud.get_or_create_user çağrısı
-                # Bu fonksiyonun, kullanıcı varsa güncelleyip, yoksa oluşturduğunu varsayıyoruz.
-                # Ve güncellenen veya oluşturulan kullanıcıyı döndürdüğünü.
-                # Ayrıca, bu fonksiyon içinde lokal rol ataması da yapılmalı.
-                
-                existing_user = user_crud.get_user_by_keycloak_id(db, keycloak_id=user_create_data.id)
-                # get_or_create_user çağrısı. Bu fonksiyon db_user'ı döndürür.
-                db_user = user_crud.get_or_create_user(db, user_data=user_create_data) 
-
-                if not existing_user:
-                    created_count += 1
-                else:
-                    # Eğer full_name, email, is_active veya rollerden biri bile değiştiyse updated sayılabilir.
-                    # get_or_create_user içindeki güncelleme mantığına göre bu daha detaylı olabilir.
-                    updated_count +=1 # Şimdilik basitçe var olanları güncellenmiş sayalım.
-                
-                synced_count += 1
-            except Exception as e_user:
-                error_count += 1
-                print(f"HATA (Startup Sync): Kullanıcı {kc_user_rep.get('username')} senkronize edilirken hata: {e_user}")
-        
-        print(f"BAŞLANGIÇ SENKRONİZASYONU: Kullanıcılar tamamlandı. Toplam işlenen: {len(all_kc_users_representation)}, Başarılı: {synced_count}, Yeni Oluşturulan: {created_count}, Güncellenen (varsa): {updated_count - created_count if updated_count > created_count else updated_count}, Hatalı: {error_count}")
-
-    except Exception as e:
-        print(f"KRİTİK HATA (Startup Sync - Users): Genel senkronizasyon hatası: {e}")
-
+# Yerel ve ortak modüllerin import edilmesi
+from database_pkg import db_models, schemas as common_schemas
+from database_pkg.database import SessionLocal, get_db
+from . import crud as user_crud, models as user_models, company_crud, keycloak_api_helpers
+from .auth import get_current_user_payload, verify_internal_secret
+from .config import Settings, get_settings
 
 async def sync_all_tenants_from_keycloak_on_startup(db: Session, settings: Settings):
-    print("BAŞLANGIÇ SENKRONİZASYONU: Keycloak grupları (tenant'lar) senkronize ediliyor...")
-    created_count = 0
-    existing_count = 0
-    error_count = 0
-
+    """Keycloak'taki grupları lokal 'companies' tablosuyla senkronize eder."""
+    print("STARTUP SYNC: Tenant'lar (gruplar) senkronize ediliyor...")
     try:
-        admin_token = await keycloak_api_helpers.get_admin_api_token(settings)
-        if not admin_token:
-            print("HATA (Startup Sync): Admin token alınamadı, tenant senkronizasyonu atlanıyor.")
+        all_kc_groups = await keycloak_api_helpers.get_all_keycloak_groups_paginated(settings)
+        if all_kc_groups is None:
+            print("HATA (Startup Sync): Admin token alınamadığı için tenant senkronizasyonu atlandı.")
             return
 
-        groups_url = f"{settings.keycloak.admin_api_realm_url}/groups"
-        # Tüm grupları almak için sayfalama gerekebilir. Örnek olarak ilk 1000 grup:
-        params = {"max": 1000, "briefRepresentation": "false"} # briefRepresentation=false daha fazla detay verir (örn: path)
-        headers = {"Authorization": f"Bearer {admin_token}"}
-        
-        all_kc_groups_representation = []
-        async with httpx.AsyncClient() as client:
-            response = await client.get(groups_url, headers=headers, params=params)
-            if response.status_code == 200:
-                all_kc_groups_representation = response.json()
-            else:
-                print(f"HATA (Startup Sync): Keycloak'tan gruplar çekilemedi. Status: {response.status_code}")
-                return
-        
-        if not all_kc_groups_representation:
-            print("BİLGİ (Startup Sync): Keycloak'ta senkronize edilecek grup (tenant) bulunamadı.")
-            return
-
-        for kc_group_rep in all_kc_groups_representation:
-            try:
-                kc_group_id_str = kc_group_rep.get("id")
-                kc_group_name = kc_group_rep.get("name")
-                # İPUCU: Sadece belirli bir path altındaki veya belirli bir attribute'a sahip grupları
-                # tenant olarak kabul etmek isteyebilirsiniz. Örneğin:
-                # if not kc_group_rep.get("path", "").startswith("/tenants/"): continue
-
-                if not kc_group_id_str or not kc_group_name:
-                    print(f"UYARI (Startup Sync): ID veya adı olmayan Keycloak grubu: {kc_group_rep}")
-                    error_count += 1
-                    continue
-                
-                kc_group_uuid = uuid.UUID(kc_group_id_str)
-                company_in_db = company_crud.get_company_by_keycloak_group_id(db, keycloak_group_id=kc_group_uuid)
-
-                if not company_in_db:
-                    company_create_data = common_schemas.CompanyCreate( # database_pkg.schemas içindeki modeli kullanın
-                        name=kc_group_name,
-                        keycloak_group_id=kc_group_uuid,
-                        status="active" # Varsayılan statü
-                    )
-                    company_crud.create_company(db, company=company_create_data)
-                    created_count += 1
-                else:
-                    existing_count += 1
-                    # İsteğe bağlı: Eğer isim Keycloak'ta değişmişse lokalde de güncelleyebilirsiniz.
-                    if company_in_db.name != kc_group_name:
-                        print(f"BİLGİ (Startup Sync): Tenant '{company_in_db.name}' adı Keycloak'ta '{kc_group_name}' olarak değişmiş. Lokal DB güncelleniyor...")
-                        company_update_data = common_schemas.CompanyUpdate(name=kc_group_name)
-                        company_crud.update_company(db, company_db_obj=company_in_db, company_in=company_update_data)
+        for group_rep in all_kc_groups:
+            kc_group_id_str = group_rep.get("id")
+            kc_group_name = group_rep.get("name")
+            if not kc_group_id_str or not kc_group_name:
+                continue
             
-            except Exception as e_group:
-                error_count += 1
-                print(f"HATA (Startup Sync): Grup (tenant) {kc_group_rep.get('name')} senkronize edilirken hata: {e_group}")
-        
-        print(f"BAŞLANGIÇ SENKRONİZASYONU: Tenant'lar tamamlandı. Toplam işlenen: {len(all_kc_groups_representation)}, Yeni Oluşturulan: {created_count}, Zaten Var Olan: {existing_count}, Hatalı: {error_count}")
+            kc_group_uuid = uuid.UUID(kc_group_id_str)
+            company_in_db = company_crud.get_company_by_keycloak_group_id(db, keycloak_group_id=kc_group_uuid)
 
+            if not company_in_db:
+                new_company_data = common_schemas.CompanyCreate(
+                    name=kc_group_name,
+                    keycloak_group_id=kc_group_uuid,
+                    status="active"
+                )
+                company_crud.create_company(db, company=new_company_data)
+                print(f"BİLGİ (Startup Sync): Yeni tenant eklendi: {kc_group_name}")
+            elif company_in_db.name != kc_group_name:
+                company_crud.update_company(db, company_in_db, common_schemas.CompanyUpdate(name=kc_group_name))
+                print(f"BİLGİ (Startup Sync): Tenant adı güncellendi: {kc_group_name}")
+
+        print("STARTUP SYNC: Tenant senkronizasyonu tamamlandı.")
     except Exception as e:
-        print(f"KRİTİK HATA (Startup Sync - Tenants): Genel senkronizasyon hatası: {e}")
+        print(f"KRİTİK HATA (Startup Sync - Tenants): {e}")
 
+async def sync_all_users_from_keycloak_on_startup(db: Session, settings: Settings):
+    """Keycloak'taki kullanıcıları lokal 'users' tablosuyla senkronize eder."""
+    print("STARTUP SYNC: Kullanıcılar senkronize ediliyor...")
+    try:
+        all_kc_users = await keycloak_api_helpers.get_all_keycloak_users_paginated(settings)
+        if all_kc_users is None:
+            print("HATA (Startup Sync): Admin token alınamadığı için kullanıcı senkronizasyonu atlandı.")
+            return
 
-# 2. FastAPI Startup Event'i veya Lifespan Context Manager
-# Bu kısım, FastAPI app objenizin tanımlandığı yerde olmalı.
+        for user_rep in all_kc_users:
+            user_id_str = user_rep.get("id")
+            if not user_id_str or not user_rep.get("email"):
+                continue
 
-# Yöntem 1: Lifespan Context Manager (Önerilen - FastAPI 0.90.0+)
-from contextlib import asynccontextmanager
+            user_create_data = user_models.UserCreateInternal(
+                id=uuid.UUID(user_id_str),
+                email=user_rep.get("email"),
+                full_name=f"{user_rep.get('firstName', '')} {user_rep.get('lastName', '')}".strip() or user_rep.get("username"),
+                roles=user_rep.get("realmRoles", []),
+                is_active=user_rep.get("enabled", False)
+            )
+            user_crud.get_or_create_user(db, user_data=user_create_data)
+        
+        print("STARTUP SYNC: Kullanıcı senkronizasyonu tamamlandı.")
+    except Exception as e:
+        print(f"KRİTİK HATA (Startup Sync - Users): {e}")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Uygulama başlamadan önce
-    print("Uygulama başlıyor - Başlangıç senkronizasyonları yapılacak...")
-    db_session_for_startup: Session = SessionLocal() # Yeni bir session oluştur
-    app_settings = get_settings() # Ayarları al
+    """Uygulama yaşam döngüsü yöneticisi."""
+    print("Uygulama başlıyor...")
+    db_session = SessionLocal()
+    app_settings = get_settings()
     try:
-        await sync_all_tenants_from_keycloak_on_startup(db=db_session_for_startup, settings=app_settings) # Önce tenant'lar
-        await sync_all_users_from_keycloak_on_startup(db=db_session_for_startup, settings=app_settings) # Sonra kullanıcılar
+        # Önce tenant'ları (şirketleri) senkronize et
+        await sync_all_tenants_from_keycloak_on_startup(db=db_session, settings=app_settings)
+        # Sonra kullanıcıları senkronize et
+        await sync_all_users_from_keycloak_on_startup(db=db_session, settings=app_settings)
     finally:
-        db_session_for_startup.close() # Session'ı kapat
-    print("Başlangıç senkronizasyonları tamamlandı.")
-    
-    yield # Uygulama burada çalışır
-    
-    # Uygulama kapandıktan sonra (gerekirse)
+        db_session.close()
+    yield
     print("Uygulama kapanıyor...")
 
+# --- FastAPI Uygulama Tanımı ---
 
 app = FastAPI(
-    title="User Service API - Keycloak Integrated (Multi-Tenant Admin WIP)",
-    description="User and Company (Tenant) Management Service for Helpdesk.",
-    lifespan=lifespan
+    title="User Service API",
+    description="Helpdesk uygulaması için Kullanıcı ve Şirket (Tenant) Yönetimi Servisi.",
+    version="1.4.0",
+    lifespan=lifespan,
 )
-
-origins = [
-    "http://localhost:5173",  # Vue frontend'inizin çalıştığı adres
-    "http://localhost:8080",  # Gerekirse diğer origin'ler
-]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=["http://localhost:5173", "http://localhost:8080"],
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"], # OPTIONS dahil tüm metodlara izin ver
-    allow_headers=["*"], # Tüm başlıklara izin ver (Authorization dahil)
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 class UserListResponse(BaseModel): # Yanıt için Pydantic modeli
@@ -230,16 +120,7 @@ class UserListResponse(BaseModel): # Yanıt için Pydantic modeli
 
 def _split_full_name(full_name: str) -> tuple[str, str]:
     parts = full_name.strip().split(maxsplit=1)
-    first_name = parts[0] if parts else ""
-    last_name = parts[1] if len(parts) > 1 else ""
-    return first_name, last_name
-
-def get_db_session():
-    db = database.SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+    return (parts[0], parts[1]) if len(parts) > 1 else (parts[0], "")
 
 @app.delete(
     "/admin/tenants/{company_id}",
@@ -308,7 +189,7 @@ async def read_user_details_for_admin(
     user_id: uuid.UUID,
     current_admin_payload: Annotated[dict, Depends(get_current_user_payload)],
     settings: Annotated[Settings, Depends(get_settings)],
-    db: Annotated[Session, Depends(get_db_session)]
+    db: Annotated[Session, Depends(get_db)] # <-- DEĞİŞİKLİK BURADA
 ):
     """
     (General Admin Only) Belirli bir kullanıcının detaylarını getirir.
@@ -377,10 +258,10 @@ async def read_user_details_for_admin(
 @app.patch("/admin/users/{user_id}", response_model=user_models.User, tags=["Admin - User Management"])
 async def update_user_for_admin(
     user_id: uuid.UUID,
-    user_update_data: user_models.AdminUserUpdateRequest, # Source 1510
+    user_update_data: user_models.AdminUserUpdateRequest,
     current_admin_payload: Annotated[dict, Depends(get_current_user_payload)],
     settings: Annotated[Settings, Depends(get_settings)],
-    db: Annotated[Session, Depends(get_db_session)]
+    db: Annotated[Session, Depends(get_db)] # <-- DEĞİŞİKLİK BURADA
 ):
     """
     (General Admin Only) Belirli bir kullanıcının bilgilerini günceller.
@@ -488,56 +369,7 @@ async def update_user_for_admin(
     return await read_user_details_for_admin(user_id, current_admin_payload, settings, db)
 
 
-@app.delete(
-    "/admin/users/{user_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-    summary="Belirli bir kullanıcıyı sistemden (Keycloak ve lokal DB) siler (Sadece General Admin)"
-)
-async def admin_delete_user(
-    user_id: uuid.UUID, # Path parametresi olarak kullanıcı ID'si
-    current_admin_payload: Annotated[Dict[str, Any], Depends(get_current_user_payload)],
-    db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings)
-):
-    admin_roles = current_admin_payload.get("roles", [])
-    if not admin_roles and current_admin_payload.get("realm_access"):
-        admin_roles = current_admin_payload.get("realm_access", {}).get("roles", [])
 
-    if "general-admin" not in admin_roles:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Bu işlemi yapma yetkiniz yok.")
-
-    log_prefix = f"INFO (DELETE /admin/users/{user_id} - Admin: {current_admin_payload.get('sub')}):"
-    print(f"{log_prefix} Attempting to delete user with ID: {user_id}")
-
-    # 1. Keycloak'tan kullanıcıyı silmeyi dene
-    # delete_keycloak_user helper'ı, kullanıcı bulunamazsa (404) da True döner (silinmiş kabul edilir).
-    # Sadece beklenmedik bir hata durumunda False döner.
-    kc_user_deleted_successfully = await keycloak_api_helpers.delete_keycloak_user(str(user_id), settings)
-
-    if not kc_user_deleted_successfully:
-        # Bu durum, helper içinde loglanmış bir silme hatası (404 dışında) anlamına gelir.
-        print(f"HATA ({log_prefix}): Kullanıcı Keycloak'ta silinirken bir sorun oluştu (ID: {user_id}). Lokal veritabanı silme işlemi denenmeyecek.")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Kullanıcı Keycloak'ta silinirken bir sorun oluştu. Lokal veritabanı etkilenmedi."
-        )
-    
-    print(f"{log_prefix} User (ID: {user_id}) successfully deleted from Keycloak (or was not found).")
-
-    # 2. Lokal veritabanından kullanıcıyı sil
-    # Bu işlem, Keycloak'tan silme başarılı olduktan sonra (veya kullanıcı zaten Keycloak'ta yoksa) yapılır.
-    deleted_db_user = user_crud.delete_user_by_keycloak_id(db, keycloak_id=user_id)
-
-    if deleted_db_user:
-        print(f"{log_prefix} User (ID: {user_id}, Email: {deleted_db_user.email}) also deleted from local DB.")
-    else:
-        # Bu durum, kullanıcının Keycloak'ta silindiği (veya zaten olmadığı)
-        # ancak lokal DB'de de bulunamadığı anlamına gelir. Bu genellikle beklenen bir durumdur
-        # eğer kullanıcı daha önce hiç senkronize edilmemişse veya zaten silinmişse.
-        print(f"BİLGİ ({log_prefix}): User (ID: {user_id}) was not found in local DB (possibly already deleted or never synced).")
-
-    # Her iki silme işlemi de "başarılı" (yani kullanıcı artık sistemde tanımlı değil) ise 204 dön.
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 @app.post(
     "/admin/users",
@@ -714,320 +546,10 @@ async def list_users_for_admin(
         
     return UserListResponse(items=pydantic_users, total=total_users)
 
-@app.patch(
-    "/admin/users/{user_id}",
-    response_model=user_models.User,
-    summary="Belirli bir kullanıcının bilgilerini, rollerini veya tenant atamasını günceller (Sadece General Admin)"
-)
-async def admin_update_user(
-    user_id: uuid.UUID, # Path parametresi
-    update_data: user_models.AdminUserUpdateRequest, # Request body
-    current_admin_payload: Annotated[Dict[str, Any], Depends(get_current_user_payload)],
-    db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings)
-):
-    admin_roles = current_admin_payload.get("roles", [])
-    if not admin_roles and current_admin_payload.get("realm_access"):
-        admin_roles = current_admin_payload.get("realm_access", {}).get("roles", [])
+@app.get("/", tags=["Root"])
+async def read_root_user_service():
+    return {"message": "User Service API çalışıyor"}
 
-    if "general-admin" not in admin_roles:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Bu işlemi yapma yetkiniz yok.")
-
-    log_prefix = f"INFO (PATCH /admin/users/{user_id} - Admin: {current_admin_payload.get('sub')}):"
-    print(f"{log_prefix} Attempting to update user with data: {update_data.model_dump(exclude_unset=True)}")
-
-    # 1. Lokal DB'den ve Keycloak'tan mevcut kullanıcıyı çek
-    db_user = user_crud.get_user_by_keycloak_id(db, keycloak_id=user_id)
-    if not db_user:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Güncellenecek kullanıcı lokal veritabanında bulunamadı.")
-
-    kc_user_representation = await keycloak_api_helpers.get_keycloak_user(str(user_id), settings)
-    if not kc_user_representation:
-        # Bu durum bir tutarsızlık belirtir: Kullanıcı lokalde var ama Keycloak'ta yok.
-        print(f"KRİTİK HATA ({log_prefix}): Kullanıcı (ID: {user_id}) lokal DB'de var ama Keycloak'ta bulunamadı!")
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Kullanıcı kimlik sağlayıcıda (Keycloak) bulunamadı.")
-
-    # Güncellenecek Keycloak kullanıcı özelliklerini biriktir
-    kc_attrib_updates: Dict[str, Any] = {}
-    final_name_for_db = db_user.full_name
-    final_is_active_for_db = db_user.is_active
-
-    # 2. Temel Kullanıcı Özelliklerini Güncelle (isim, aktiflik)
-    if "full_name" in update_data.model_fields_set: # Pydantic v2 için, v1 için update_data.__fields_set__
-        if update_data.full_name is not None:
-            first_name, last_name = _split_full_name(update_data.full_name)
-            kc_attrib_updates["firstName"] = first_name
-            kc_attrib_updates["lastName"] = last_name
-            final_name_for_db = update_data.full_name
-            print(f"{log_prefix} Name update: firstName='{first_name}', lastName='{last_name}'")
-
-    if "is_active" in update_data.model_fields_set:
-        if update_data.is_active is not None:
-            kc_attrib_updates["enabled"] = update_data.is_active
-            final_is_active_for_db = update_data.is_active
-            print(f"{log_prefix} Status update: enabled={update_data.is_active}")
-    
-    if kc_attrib_updates:
-        # email ve username gibi alanları mevcut UserRepresentation'dan alıp güncelleme request'ine ekleyebiliriz,
-        # çünkü Keycloak PUT /users/{id} endpoint'i tam bir UserRepresentation bekleyebilir.
-        # Ya da sadece değişenleri göndeririz. Keycloak API'si genellikle sadece değişenleri kabul eder.
-        # Güvenli olması için, mevcut kc_user_representation'dan bazı zorunlu alanları alıp,
-        # kc_attrib_updates ile üzerine yazarak gönderelim.
-        # Ancak, Keycloak genellikle PUT ile sadece gönderilen alanları günceller.
-        # update_keycloak_user_attributes fonksiyonunuz bu detayı ele almalı.
-        # Mevcut update_keycloak_user_attributes sadece gönderilenleri PUT ettiği için bu yeterli.
-        success_attrib_update = await keycloak_api_helpers.update_keycloak_user_attributes(
-            str(user_id), kc_attrib_updates, settings
-        )
-        if not success_attrib_update:
-            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Keycloak'ta kullanıcı özellikleri güncellenirken hata oluştu.")
-        print(f"{log_prefix} Basic attributes updated in Keycloak.")
-
-    # 3. Rolleri Güncelle
-    final_roles_for_db = [str(db_user.role.value)] if db_user.role else [] # DB'deki mevcut rolü al
-    if "roles" in update_data.model_fields_set: # Eğer roles alanı requestte belirtilmişse (boş liste dahil)
-        if update_data.roles is not None:
-            success_roles_update = await keycloak_api_helpers.set_user_realm_roles(
-                str(user_id), update_data.roles, settings
-            )
-            if not success_roles_update:
-                # Rol güncelleme kritik olmayabilir, loglayıp devam edebiliriz veya hata verebiliriz.
-                print(f"UYARI ({log_prefix}): Keycloak'ta kullanıcı rolleri tam olarak güncellenemedi.")
-                # raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Keycloak'ta kullanıcı rolleri güncellenirken hata oluştu.")
-            else:
-                print(f"{log_prefix} Roles updated in Keycloak to: {update_data.roles}")
-            final_roles_for_db = update_data.roles # DB'ye senkronize edilecek rolleri güncelle
-        else: # update_data.roles explicit olarak null ise (pek olası değil modelde List[str] olduğu için, ama boş liste [] olabilir)
-            # Eğer update_data.roles None ise (modelde Optional[List[str]] = None), bu dokunma demek.
-            # Eğer update_data.roles == [] ise, tüm rolleri sil demek. set_user_realm_roles bunu yapar.
-            pass # set_user_realm_roles zaten None veya boş liste durumunu ele alır.
-
-    # 4. Tenant/Grup Atamasını Güncelle
-    if "tenant_id" in update_data.model_fields_set: # Eğer tenant_id alanı requestte belirtilmişse
-        print(f"{log_prefix} Tenant assignment change requested. New tenant_id: {update_data.tenant_id}")
-        current_kc_groups = await keycloak_api_helpers.get_user_keycloak_groups(str(user_id), settings)
-        current_kc_group_ids = {group['id'] for group in current_kc_groups} if current_kc_groups else set()
-
-        new_kc_group_id_to_assign: Optional[str] = None
-        if update_data.tenant_id is not None: # Yeni bir tenant ID'si verilmiş
-            new_tenant_company = company_crud.get_company(db, company_id=update_data.tenant_id)
-            if not new_tenant_company:
-                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Belirtilen yeni tenant ID'si ile şirket bulunamadı.")
-            if not new_tenant_company.keycloak_group_id:
-                raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Yeni şirketin Keycloak grup ID'si eksik.")
-            new_kc_group_id_to_assign = str(new_tenant_company.keycloak_group_id)
-
-        # Önce mevcut tüm gruplardan çıkar (genellikle kullanıcı en fazla 1 tenant grubunda olur)
-        # Eğer yeni grup eskisinden farklıysa veya kullanıcı bir gruptan tamamen çıkarılıyorsa.
-        for group_id_to_remove in current_kc_group_ids:
-            if group_id_to_remove != new_kc_group_id_to_assign: # Yeni gruba eşit değilse veya yeni grup yoksa sil
-                print(f"{log_prefix} Removing user from old Keycloak group: {group_id_to_remove}")
-                await keycloak_api_helpers.remove_user_from_keycloak_group(str(user_id), group_id_to_remove, settings)
-        
-        # Eğer yeni bir grup atanacaksa ve kullanıcı zaten o grupta değilse ekle
-        if new_kc_group_id_to_assign and new_kc_group_id_to_assign not in current_kc_group_ids:
-            print(f"{log_prefix} Adding user to new Keycloak group: {new_kc_group_id_to_assign}")
-            await keycloak_api_helpers.add_user_to_group(str(user_id), new_kc_group_id_to_assign, settings)
-        
-        print(f"{log_prefix} Tenant/Group assignment updated in Keycloak.")
-
-
-    # 5. Lokal Veritabanını Güncelle (get_or_create_user ile efektif update)
-    # Not: get_or_create_user, UserCreateInternal bekler. final_roles_for_db listesini kullanacağız.
-    user_data_for_local_db_update = user_models.UserCreateInternal(
-        id=user_id, # Path'ten gelen user_id (UUID)
-        email=kc_user_representation.get('email', db_user.email), # Email güncellenmiyor, mevcut olanı kullan
-        full_name=final_name_for_db,
-        roles=final_roles_for_db, # Güncellenmiş veya mevcut roller (Keycloak'a atananlar)
-        is_active=final_is_active_for_db
-    )
-    
-    try:
-        updated_db_user = user_crud.get_or_create_user(db=db, user_data=user_data_for_local_db_update)
-    except Exception as e:
-        # Keycloak'ta değişiklikler yapıldı ama lokal DB senkronizasyonu başarısız oldu.
-        # Bu durum manuel müdahale gerektirebilir.
-        print(f"KRİTİK HATA ({log_prefix}): Keycloak işlemleri sonrası lokal DB güncellenemedi: {e}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Kullanıcı lokal veritabanında güncellenirken bir hata oluştu. Sistem yöneticisine başvurun.")
-
-    print(f"{log_prefix} User '{updated_db_user.email}' (ID: {updated_db_user.id}) successfully updated in Keycloak and synced to local DB.")
-
-    # Yanıt için Pydantic modelini oluştur. Roller için Keycloak'a atanan güncel rolleri (final_roles_for_db) kullanalım.
-    return user_models.User(
-        id=updated_db_user.id,
-        email=updated_db_user.email,
-        full_name=updated_db_user.full_name,
-        roles=final_roles_for_db, # Keycloak'a gönderilen/güncellenen roller
-        is_active=updated_db_user.is_active,
-        created_at=updated_db_user.created_at # updated_at alanı DB modelinde varsa o da eklenebilir.
-    )
-
-# --- Veritabanı Şema ve Tablo Oluşturma ---
-def create_db_and_tables():
-    print("User Service: Veritabanı şemaları ve tabloları oluşturuluyor/kontrol ediliyor...")
-    
-    # Sadece User Service'in sorumlu olduğu modelleri burada işleyin
-    # User ve Company modelleri için şema kontrolü
-    schemas_to_create = set()
-    if hasattr(db_models.User, '__table_args__') and isinstance(db_models.User.__table_args__, dict) and 'schema' in db_models.User.__table_args__:
-        schemas_to_create.add(db_models.User.__table_args__['schema'])
-    if hasattr(db_models.Company, '__table_args__') and isinstance(db_models.Company.__table_args__, dict) and 'schema' in db_models.Company.__table_args__:
-        schemas_to_create.add(db_models.Company.__table_args__['schema'])
-
-    # Ticket tablosu User Service'in sorumluluğunda olmamalı.
-    # Eğer db_models altında Ticket varsa ve şeması User ile aynıysa zaten yukarıda yakalanır,
-    # değilse ve özellikle User Service'in Ticket tablosu oluşturması istenmiyorsa, aşağıdaki satırlar kaldırılmalı/yorumlanmalı.
-    # if db_models.Ticket.__table_args__ and 'schema' in db_models.Ticket.__table_args__:
-    # schemas_to_create.add(db_models.Ticket.__table_args__['schema'])
-    
-    unique_schemas = set(s for s in schemas_to_create if s) 
-
-    for schema_name in unique_schemas:
-        try:
-            with engine.connect() as connection:
-                connection.execute(CreateSchema(schema_name, if_not_exists=True))
-                connection.commit()
-            print(f"User Service: '{schema_name}' şeması kontrol edildi/oluşturuldu.")
-        except ProgrammingError:
-            print(f"User Service: Şema '{schema_name}' zaten mevcut veya oluşturulamadı (izin sorunu olabilir).")
-        except Exception as e:
-            print(f"User Service: Şema '{schema_name}' oluşturulurken beklenmedik hata: {e}")
-    try:
-        Base.metadata.create_all(bind=engine) # Bu, User ve Company tablolarını (ve şemaları içindeyse onları) oluşturur.
-        print("User Service: Veritabanı tabloları başarıyla kontrol edildi/oluşturuldu.")
-    except Exception as e:
-        print(f"User Service: Tablolar oluşturulurken HATA: {e}")
-        import traceback
-        traceback.print_exc()
-
-create_db_and_tables()
-# --- Veritabanı Kurulum Sonu ---
-
-@app.get(
-    "/admin/users/{user_id}", 
-    response_model=user_models.User,
-    summary="Belirli bir kullanıcının detaylarını getirir (Sadece General Admin)"
-)
-async def get_user_details_for_admin(
-    user_id: uuid.UUID, # Path parametresi olarak kullanıcı ID'si
-    current_user_payload: Annotated[Dict[str, Any], Depends(get_current_user_payload)],
-    db: Session = Depends(get_db)
-):
-    user_roles_from_token = current_user_payload.get("roles", [])
-    if not user_roles_from_token and current_user_payload.get("realm_access"):
-        user_roles_from_token = current_user_payload.get("realm_access", {}).get("roles", [])
-
-    if "general-admin" not in user_roles_from_token:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Bu işlemi yapma yetkiniz yok.")
-
-    print(f"INFO (GET /admin/users/{{user_id}}): General admin '{current_user_payload.get('sub')}' requesting details for user ID: {user_id}")
-    
-    db_user = user_crud.get_user_by_keycloak_id(db, keycloak_id=user_id)
-    
-    if db_user is None:
-        print(f"WARN (GET /admin/users/{{user_id}}): User with ID {user_id} not found in local DB.")
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Kullanıcı bulunamadı.")
-    
-    # Pydantic user_models.User modeline dönüştür
-    # DB'deki enum rolünü string listesine çevir
-    db_role_str_list = [str(db_user.role.value)] if db_user.role else []
-        
-    return user_models.User(
-        id=db_user.id,
-        email=db_user.email,
-        full_name=db_user.full_name,
-        roles=db_role_str_list, # DB'deki atanmış rolü liste olarak ver
-        is_active=db_user.is_active,
-        created_at=db_user.created_at
-    )
-
-@app.get("/")
-async def read_root_user_service(settings: Settings = Depends(get_settings)): # Tek bir root endpoint
-    print(f"UserService Root - Configured Audience: {settings.keycloak.audience}")
-    return {"message": "User Service API (Keycloak Entegreli ve Tenant Yönetimi)"}
-
-@app.post(
-    "/users/sync-from-keycloak", 
-    response_model=user_models.User,
-    summary="Keycloak kullanıcısını lokal DB ile senkronize et/oluştur (JIT - İç Servis Çağrısı)"
-)
-async def sync_user_from_keycloak(
-    user_in: user_models.UserCreateInternal, 
-    is_internal_request: Annotated[bool, Depends(verify_internal_secret)], 
-    db: Session = Depends(get_db)
-):
-    if not is_internal_request:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Yetkisiz erişim.")
-
-    print(f"USER_SERVICE: /users/sync-from-keycloak called for user ID: {user_in.id}, email: {user_in.email}")
-    
-    db_user = user_crud.get_or_create_user(db=db, user_data=user_in)
-    
-    return user_models.User(
-        id=db_user.id,
-        email=db_user.email,
-        full_name=db_user.full_name,
-        roles=user_in.roles, 
-        is_active=db_user.is_active,
-        created_at=db_user.created_at
-    )
-
-# Bu, `/users/me` endpoint'inin doğru ve tek versiyonu
-@app.get("/users/me", response_model=user_models.User, summary="Mevcut login olmuş kullanıcının bilgilerini getir")
-async def read_users_me(
-    current_user_payload: Annotated[Dict[str, Any], Depends(get_current_user_payload)],
-    db: Session = Depends(get_db)
-):
-    keycloak_id_str = current_user_payload.get("sub")
-    if not keycloak_id_str:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token ID (sub) bulunamadı")
-
-    try:
-        user_id_uuid = uuid.UUID(keycloak_id_str)
-    except ValueError:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Geçersiz kullanıcı ID formatı (sub).")
-
-    email = current_user_payload.get("email")
-    if not email:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Token içinde e-posta bilgisi bulunamadı.")
-
-    full_name = (
-        current_user_payload.get("name") or
-        f"{current_user_payload.get('given_name', '')} {current_user_payload.get('family_name', '')}".strip() or
-        current_user_payload.get("preferred_username")
-    )
-    if not full_name:
-        full_name = email 
-
-    keycloak_roles = current_user_payload.get("roles", [])
-    if not keycloak_roles and current_user_payload.get("realm_access"): 
-        keycloak_roles = current_user_payload.get("realm_access", {}).get("roles", [])
-    
-    is_active = current_user_payload.get("email_verified", True) 
-
-    user_data_for_crud = user_models.UserCreateInternal(
-        id=user_id_uuid,
-        email=email,
-        full_name=full_name,
-        roles=keycloak_roles, 
-        is_active=is_active
-    )
-
-    # crud.get_or_create_user çağrısı JIT provisioning'i yapar
-    # Eğer IntegrityError (örn: email unique constraint) olursa, bu crud içinde ele alınmalı veya burada try-except ile yakalanmalı.
-    # Şimdilik crud.get_or_create_user'ın bu durumu yönettiğini varsayıyoruz.
-    db_user = user_crud.get_or_create_user(db=db, user_data=user_data_for_crud)
-    if not db_user: # get_or_create_user bir şekilde None dönerse (beklenmedik)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Kullanıcı bilgileri alınırken veya oluşturulurken hata oluştu.")
-
-    return user_models.User(
-        id=db_user.id,
-        email=db_user.email,
-        full_name=db_user.full_name,
-        roles=keycloak_roles, 
-        is_active=db_user.is_active,
-        created_at=db_user.created_at
-    )
 
 @app.post("/admin/tenants", response_model=common_schemas.Company, status_code=status.HTTP_201_CREATED, summary="Yeni bir tenant (müşteri şirketi) oluşturur (Sadece General Admin)")
 async def create_new_tenant(
@@ -1196,3 +718,204 @@ async def update_tenant_details( # Fonksiyon adını daha genel yaptım
     
     print(f"{log_prefix} Company '{updated_company.name}' (ID: {updated_company.id}) updated successfully. New data: {updated_company}")
     return updated_company
+
+
+
+
+
+#---------------------------------------------------------------------------------------------------------------
+
+@app.delete(
+    "/admin/users/{user_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Belirli bir kullanıcıyı sistemden (Keycloak ve lokal DB) siler (Sadece General Admin)"
+)
+async def admin_delete_user(
+    user_id: uuid.UUID, # Path parametresi olarak kullanıcı ID'si
+    current_admin_payload: Annotated[Dict[str, Any], Depends(get_current_user_payload)],
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings)
+):
+    admin_roles = current_admin_payload.get("roles", [])
+    if not admin_roles and current_admin_payload.get("realm_access"):
+        admin_roles = current_admin_payload.get("realm_access", {}).get("roles", [])
+
+    if "general-admin" not in admin_roles:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Bu işlemi yapma yetkiniz yok.")
+
+    log_prefix = f"INFO (DELETE /admin/users/{user_id} - Admin: {current_admin_payload.get('sub')}):"
+    print(f"{log_prefix} Attempting to delete user with ID: {user_id}")
+
+    # 1. Keycloak'tan kullanıcıyı silmeyi dene
+    # delete_keycloak_user helper'ı, kullanıcı bulunamazsa (404) da True döner (silinmiş kabul edilir).
+    # Sadece beklenmedik bir hata durumunda False döner.
+    kc_user_deleted_successfully = await keycloak_api_helpers.delete_keycloak_user(str(user_id), settings)
+
+    if not kc_user_deleted_successfully:
+        # Bu durum, helper içinde loglanmış bir silme hatası (404 dışında) anlamına gelir.
+        print(f"HATA ({log_prefix}): Kullanıcı Keycloak'ta silinirken bir sorun oluştu (ID: {user_id}). Lokal veritabanı silme işlemi denenmeyecek.")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Kullanıcı Keycloak'ta silinirken bir sorun oluştu. Lokal veritabanı etkilenmedi."
+        )
+    
+    print(f"{log_prefix} User (ID: {user_id}) successfully deleted from Keycloak (or was not found).")
+
+    # 2. Lokal veritabanından kullanıcıyı sil
+    # Bu işlem, Keycloak'tan silme başarılı olduktan sonra (veya kullanıcı zaten Keycloak'ta yoksa) yapılır.
+    deleted_db_user = user_crud.delete_user_by_keycloak_id(db, keycloak_id=user_id)
+
+    if deleted_db_user:
+        print(f"{log_prefix} User (ID: {user_id}, Email: {deleted_db_user.email}) also deleted from local DB.")
+    else:
+        # Bu durum, kullanıcının Keycloak'ta silindiği (veya zaten olmadığı)
+        # ancak lokal DB'de de bulunamadığı anlamına gelir. Bu genellikle beklenen bir durumdur
+        # eğer kullanıcı daha önce hiç senkronize edilmemişse veya zaten silinmişse.
+        print(f"BİLGİ ({log_prefix}): User (ID: {user_id}) was not found in local DB (possibly already deleted or never synced).")
+
+    # Her iki silme işlemi de "başarılı" (yani kullanıcı artık sistemde tanımlı değil) ise 204 dön.
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+@app.patch("/admin/users/{user_id}", response_model=user_models.User, tags=["Admin - Users"])
+async def admin_update_user(
+    user_id: uuid.UUID,
+    update_data: user_models.AdminUserUpdateRequest,
+    current_admin_payload: Annotated[Dict, Depends(get_current_user_payload)],
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    """Bir kullanıcının adını, aktiflik durumunu, rollerini ve tenant'ını günceller."""
+    if "general-admin" not in current_admin_payload.get("realm_access", {}).get("roles", []):
+        raise HTTPException(status_code=403, detail="Bu işlem için yetkiniz yok.")
+
+    db_user = user_crud.get_user_by_keycloak_id(db, user_id)
+    if not db_user:
+        raise HTTPException(status_code=404, detail="Güncellenecek kullanıcı bulunamadı.")
+
+    kc_user_id_str = str(user_id)
+    kc_attribs_to_update = {}
+    
+    # 1. İsim ve Aktiflik Durumunu Güncelle
+    if "full_name" in update_data.model_fields_set:
+        first_name, last_name = _split_full_name(update_data.full_name)
+        kc_attribs_to_update.update({"firstName": first_name, "lastName": last_name})
+    if "is_active" in update_data.model_fields_set:
+        kc_attribs_to_update["enabled"] = update_data.is_active
+    
+    if kc_attribs_to_update:
+        if not await keycloak_api_helpers.update_keycloak_user_attributes(kc_user_id_str, kc_attribs_to_update, settings):
+            raise HTTPException(status_code=500, detail="Keycloak'ta kullanıcı özellikleri güncellenemedi.")
+
+    # 2. Rolleri Güncelle
+    if "roles" in update_data.model_fields_set:
+        if not await keycloak_api_helpers.set_user_realm_roles(kc_user_id_str, update_data.roles, settings):
+            raise HTTPException(status_code=500, detail="Keycloak'ta kullanıcı rolleri güncellenemedi.")
+    
+    # 3. Tenant/Grup Atamasını Güncelle
+    if "tenant_id" in update_data.model_fields_set:
+        new_tenant_id = update_data.tenant_id
+        current_kc_groups = await keycloak_api_helpers.get_user_keycloak_groups(kc_user_id_str, settings)
+        for group in current_kc_groups or []:
+            await keycloak_api_helpers.remove_user_from_keycloak_group(kc_user_id_str, group['id'], settings)
+        
+        if new_tenant_id is not None:
+            target_company = company_crud.get_company(db, new_tenant_id)
+            if not target_company or not target_company.keycloak_group_id:
+                raise HTTPException(status_code=404, detail="Hedef tenant veya Keycloak grup ID'si bulunamadı.")
+            await keycloak_api_helpers.add_user_to_group(kc_user_id_str, str(target_company.keycloak_group_id), settings)
+
+    # 4. Lokal DB'yi Güncelle ve Güncel Kullanıcıyı Dön
+    # Bu JIT call, lokal DB'yi en son bilgilerle güncelleyecektir.
+    updated_user_response = await get_user_details_for_admin(user_id, current_admin_payload, db, settings)
+    
+    # get_or_create_user'ı çağırarak lokal DB'deki temel bilgilerin de (isim, rol vs.) güncel olduğundan emin olalım
+    user_crud.get_or_create_user(db, user_models.UserCreateInternal(
+        id=updated_user_response.id,
+        email=updated_user_response.email,
+        full_name=updated_user_response.full_name,
+        roles=updated_user_response.roles,
+        is_active=updated_user_response.is_active
+    ))
+    
+    return updated_user_response
+
+@app.get("/admin/users/{user_id}", response_model=user_models.User, tags=["Admin - Users"])
+async def get_user_details_for_admin(
+    user_id: uuid.UUID,
+    current_admin_payload: Annotated[Dict, Depends(get_current_user_payload)],
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    """(TEK VE DOĞRU VERSİYON) Belirli bir kullanıcının detaylarını getirir."""
+    if "general-admin" not in current_admin_payload.get("realm_access", {}).get("roles", []):
+        raise HTTPException(status_code=403, detail="Bu işlem için yetkiniz yok.")
+
+    db_user = user_crud.get_user_by_keycloak_id(db, user_id)
+    if not db_user:
+        raise HTTPException(status_code=404, detail="Kullanıcı bulunamadı.")
+
+    kc_user_details = await keycloak_api_helpers.get_keycloak_user(str(user_id), settings)
+    kc_user_groups = await keycloak_api_helpers.get_user_keycloak_groups(str(user_id), settings)
+    
+    kc_roles = kc_user_details.get("realmRoles", []) if kc_user_details else []
+    kc_is_active = kc_user_details.get("enabled", db_user.is_active) if kc_user_details else db_user.is_active
+
+    user_company_info = None
+    if kc_user_groups:
+        kc_group_id_str = kc_user_groups[0].get('id')
+        if kc_group_id_str:
+            try:
+                company = company_crud.get_company_by_keycloak_group_id(db, uuid.UUID(kc_group_id_str))
+                if company:
+                    user_company_info = common_schemas.CompanyBasicInfo.from_orm(company)
+            except (ValueError, IndexError):
+                print(f"UYARI: Kullanıcı grupları işlenirken hata oluştu. ID: {user_id}")
+
+    return user_models.User(
+        id=db_user.id,
+        email=db_user.email,
+        full_name=db_user.full_name,
+        roles=kc_roles,
+        is_active=kc_is_active,
+        created_at=db_user.created_at,
+        company=user_company_info
+    )
+
+@app.post("/users/sync-from-keycloak", response_model=user_models.User, tags=["Internal"])
+async def sync_user_from_keycloak(
+    user_in: user_models.UserCreateInternal,
+    is_internal: Annotated[bool, Depends(verify_internal_secret)],
+    db: Session = Depends(get_db)
+):
+    """İç servis çağrısıyla kullanıcıyı lokal DB'ye senkronize eder/oluşturur."""
+    if not is_internal: raise HTTPException(status_code=403, detail="Yetkisiz erişim.")
+    db_user = user_crud.get_or_create_user(db=db, user_data=user_in)
+    return user_models.User(
+        id=db_user.id, email=db_user.email, full_name=db_user.full_name,
+        roles=user_in.roles, is_active=db_user.is_active, created_at=db_user.created_at
+    )
+
+@app.get("/users/me", response_model=user_models.User, tags=["Users"])
+async def read_users_me(
+    current_user_payload: Annotated[Dict, Depends(get_current_user_payload)],
+    db: Session = Depends(get_db)
+):
+    """Mevcut (login olmuş) kullanıcının bilgilerini JIT Provisioning ile getirir."""
+    keycloak_id_str = current_user_payload.get("sub")
+    email = current_user_payload.get("email")
+    if not keycloak_id_str or not email:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Token içinde ID veya e-posta eksik.")
+
+    user_data = user_models.UserCreateInternal(
+        id=uuid.UUID(keycloak_id_str),
+        email=email,
+        full_name=current_user_payload.get("name", email),
+        roles=current_user_payload.get("realm_access", {}).get("roles", []),
+        is_active=current_user_payload.get("email_verified", True)
+    )
+    db_user = user_crud.get_or_create_user(db=db, user_data=user_data)
+    
+    return user_models.User(
+        id=db_user.id, email=db_user.email, full_name=db_user.full_name,
+        roles=user_data.roles, is_active=db_user.is_active, created_at=db_user.created_at
+    )

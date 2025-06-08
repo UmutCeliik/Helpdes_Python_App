@@ -1,5 +1,5 @@
 # ticket_service/crud.py
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from typing import List, Optional
 import uuid
 # Ortak DB modelini ve Ticket Pydantic modellerini import et
@@ -45,3 +45,61 @@ def delete_ticket(db: Session, ticket_id: uuid.UUID) -> db_models.Ticket | None:
     db.delete(db_ticket)
     db.commit()
     return db_ticket
+
+def get_ticket_with_details(db: Session, ticket_id: uuid.UUID) -> Optional[db_models.Ticket]:
+    """
+    Verilen ID'ye sahip bir bileti, ilişkili olduğu yorumlar ve eklerle
+    birlikte veritabanından çeker.
+    """
+    return (
+        db.query(db_models.Ticket)
+        .options(
+            joinedload(db_models.Ticket.comments),
+            joinedload(db_models.Ticket.attachments)
+        )
+        .filter(db_models.Ticket.id == ticket_id)
+        .first()
+    )
+
+def get_company_by_keycloak_group_id(db: Session, keycloak_group_id: uuid.UUID) -> Optional[db_models.Company]:
+    """
+    Verilen Keycloak grup ID'sine sahip şirketi lokal veritabanından getirir.
+    """
+    # Not: db_models.Company'de keycloak_group_id UUID tipinde olmalı
+    return db.query(db_models.Company).filter(db_models.Company.keycloak_group_id == keycloak_group_id).first()
+
+def create_comment(db: Session, comment: models.CommentCreate, ticket_id: uuid.UUID, author_id: uuid.UUID) -> db_models.Comment:
+    """
+    Belirli bir bilete yeni bir yorum ekler.
+    """
+    db_comment = db_models.Comment(
+        content=comment.content,
+        ticket_id=ticket_id,
+        author_id=author_id
+    )
+    db.add(db_comment)
+    db.commit()
+    db.refresh(db_comment)
+    return db_comment
+
+def create_attachment(db: Session, file_name: str, file_path: str, file_type: str, ticket_id: uuid.UUID, uploader_id: uuid.UUID) -> db_models.Attachment:
+    """
+    Bir bilet için yeni bir dosya eki kaydı oluşturur.
+    """
+    db_attachment = db_models.Attachment(
+        file_name=file_name,
+        file_path=file_path,
+        file_type=file_type,
+        ticket_id=ticket_id,
+        uploader_id=uploader_id
+    )
+    db.add(db_attachment)
+    db.commit()
+    db.refresh(db_attachment)
+    return db_attachment
+
+def get_attachment(db: Session, attachment_id: uuid.UUID) -> Optional[db_models.Attachment]:
+    """
+    Verilen ID'ye sahip tek bir attachment kaydını getirir.
+    """
+    return db.query(db_models.Attachment).filter(db_models.Attachment.id == attachment_id).first()
