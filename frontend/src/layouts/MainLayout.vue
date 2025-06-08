@@ -3,18 +3,29 @@
     <v-navigation-drawer
       v-model="drawer"
       app
-      clipped-left 
+      :clipped-left="true"
       color="grey-lighten-4"
+      :rail="isDesktop && rail"
+      :expand-on-hover="isDesktop && rail"
     >
       <v-list dense nav>
-        <v-list-subheader>MENÜ</v-list-subheader>
+        <v-list-item v-if="drawer && !rail" class="pa-2 mb-2">
+            <v-list-item-title class="text-h6 font-weight-bold ml-1">
+                Firma Helpdesk
+            </v-list-item-title>
+        </v-list-item>
+
+        <v-divider></v-divider>
+
+        <v-list-subheader class="mt-2">MENÜ</v-list-subheader>
         <v-list-item
           v-for="(item, i) in menuItems"
           :key="i"
           :to="item.route"
           link
           color="primary"
-          exact 
+          exact
+          :title="item.title"
         >
           <template v-slot:prepend>
             <v-icon :icon="item.icon"></v-icon>
@@ -22,111 +33,153 @@
           <v-list-item-title>{{ item.title }}</v-list-item-title>
         </v-list-item>
       </v-list>
-      <template v-slot:append>
-        <div class="pa-2">
-          <v-btn block color="primary" @click="handleLogout">
-            <v-icon left>mdi-logout</v-icon>
-            Çıkış Yap
-          </v-btn>
-        </div>
-      </template>
     </v-navigation-drawer>
 
-    <v-app-bar app clipped-left color="primary" dark>
-      <v-app-bar-nav-icon @click.stop="drawer = !drawer"></v-app-bar-nav-icon>
-      <v-toolbar-title class="font-weight-bold">
+    <v-app-bar app :clipped-left="true" color="primary" dark>
+      <v-app-bar-nav-icon
+        @click.stop="isDesktop ? (rail = !rail) : (drawer = !drawer)"
+        :title="isDesktop ? (rail ? 'Menüyü Genişlet' : 'Menüyü Daralt') : 'Menüyü Aç/Kapat'"
+      >
+        <v-icon v-if="isDesktop">{{ rail ? 'mdi-format-indent-decrease' : 'mdi-format-indent-increase' }}</v-icon>
+        <v-icon v-else>mdi-menu</v-icon>
+      </v-app-bar-nav-icon>
+
+      <v-toolbar-title class="font-weight-bold" v-if="!drawer || rail">
         <v-icon icon="mdi-lifebuoy" class="mr-2"></v-icon>
         Firma Helpdesk
       </v-toolbar-title>
+      
       <v-spacer></v-spacer>
-      <span class="mr-3">Hoş geldiniz, {{ userName }}</span>
+
+      <v-tooltip location="bottom" text="Temayı Değiştir">
+        <template v-slot:activator="{ props: tooltipProps }">
+          <v-btn v-bind="tooltipProps" @click="toggleTheme" icon class="mr-1">
+            <v-icon>mdi-theme-light-dark</v-icon>
+          </v-btn>
+        </template>
+      </v-tooltip>
+
+      <v-menu offset-y>
+        <template v-slot:activator="{ props: menuProps }">
+          <v-btn v-bind="menuProps" text class="mr-1 text-capitalize" style="letter-spacing: normal;">
+            <v-icon left class="mr-2">mdi-account-circle-outline</v-icon>
+            {{ userName }}
+            <v-icon right class="ml-1">mdi-menu-down</v-icon>
+          </v-btn>
+        </template>
+        <v-list density="compact" nav>
+          <v-list-item @click="() => { alert('Profil sayfası henüz hazır değil.'); }" value="profile">
+            <template v-slot:prepend>
+              <v-icon>mdi-account-box-outline</v-icon>
+            </template>
+            <v-list-item-title>Profilim</v-list-item-title>
+          </v-list-item>
+          <v-list-item @click="() => { alert('Ayarlar sayfası henüz hazır değil.'); }" value="settings">
+            <template v-slot:prepend>
+              <v-icon>mdi-cog-outline</v-icon>
+            </template>
+            <v-list-item-title>Ayarlar</v-list-item-title>
+          </v-list-item>
+          <v-divider class="my-1"></v-divider>
+          <v-list-item @click="handleLogout" value="logout" base-color="red">
+             <template v-slot:prepend>
+              <v-icon>mdi-logout</v-icon>
+            </template>
+            <v-list-item-title>Çıkış Yap</v-list-item-title>
+          </v-list-item>
+        </v-list>
+      </v-menu>
     </v-app-bar>
 
-    <v-main class="grey-lighten-5">
-      <router-view />
+    <v-main :class="theme.global.current.value.dark ? 'bg-grey-darken-4' : 'bg-grey-lighten-4'" >
+      <v-container fluid class="pa-4">
+         <router-view />
+      </v-container>
     </v-main>
   </v-app>
 </template>
 
-<script>
-import { ref, computed } from 'vue';
+<script setup>
+import { ref, computed, onMounted } from 'vue';
 import { useAuthStore } from '@/stores/auth';
-import { useRouter } from 'vue-router';
+import { useTheme, useDisplay } from 'vuetify';
 
-export default {
-  name: 'MainLayout',
-  setup() {
-    const drawer = ref(true);
-    const authStore = useAuthStore();
-    const router = useRouter();
+// Store ve Hook'lar
+const authStore = useAuthStore();
+const theme = useTheme();
+const { mdAndUp: isDesktop } = useDisplay();
 
-    const baseMenuItems = [
-      { title: 'Ana Panel', icon: 'mdi-view-dashboard', route: '/' },
-      { title: 'Biletlerim', icon: 'mdi-ticket', route: '/tickets' },
-      { title: 'Yeni Bilet Oluştur', icon: 'mdi-plus-box', route: '/create-ticket' },
-    ];
+// State
+const drawer = ref(true);
+const rail = ref(true);
 
-    const menuItems = computed(() => {
-      const items = [...baseMenuItems];
-      if (authStore.userRoles && authStore.userRoles.includes('general-admin')) {
-        items.push({ title: 'Admin Paneli', icon: 'mdi-shield-crown', route: '/admin' });
-        items.push({ title: 'Tenant Yönetimi', icon: 'mdi-domain', route: '/admin/tenants' });
-        items.push({ title: 'Kullanıcı Yönetimi', icon: 'mdi-account-group', route: '/admin/users' });
-      }
-      return items;
-    });
+// Menü Öğeleri
+const baseMenuItems = [
+  { title: 'Ana Panel', icon: 'mdi-view-dashboard-outline', route: '/' },
+  { title: 'Biletlerim', icon: 'mdi-ticket-outline', route: '/tickets' },
+  { title: 'Yeni Bilet Oluştur', icon: 'mdi-plus-box-outline', route: '/create-ticket' },
+];
 
-    // --- DÜZELTİLMİŞ KISIM ---
-    const userName = computed(() => {
-      const user = authStore.userProfile; // auth.js store'undaki userProfile'ı kullanıyoruz
-      // userProfile içindeki 'name', 'preferred_username' veya 'email' gibi alanları kontrol edin
-      // Keycloak'tan gelen profile göre bu alanlar değişebilir.
-      // Örnek: user.name || user.preferred_username || user.email || 'Kullanıcı'
-      // Sizin auth.js store'unuz userProfile.value = { username: tokenParsed.value?.preferred_username ...} şeklinde set ediyor.
-      // Bu durumda user.username veya user.email kullanılabilir.
-      if (user) {
-        return user.name || user.preferred_username || user.email || 'Kullanıcı';
-      }
-      return 'Kullanıcı';
-    });
-
-    const handleLogout = () => {
-      console.log('MainLayout: handleLogout called'); // Log eklendi
-      authStore.logout(); // Bu, store'daki logout action'ını çağırır
-      // store'daki logout action'ı zaten redirectUri ile Keycloak'a yönlendirme yapmalı
-      // ve Keycloak da login sayfasına geri yönlendirmeli.
-      // Eğer Keycloak yönlendirmesi sonrası login sayfasına gelinmiyorsa
-      // veya state güncellenmiyorsa, authStore.logout() ve Keycloak init/check-sso akışını incelemek gerekir.
-      // Şimdilik router.push('/login') çağrısını burada tutabiliriz,
-      // ancak idealde Keycloak logout sonrası yönlendirme bunu halletmeli.
-      // router.push('/login'); // Bu satır, authStore.logout içindeki Keycloak yönlendirmesiyle çakışabilir veya gereksiz olabilir.
-                               // auth.js'deki logout'a redirectUri eklediğimiz için bu satıra genellikle gerek kalmaz.
-                               // Keycloak logout sonrası /login'e yönlendirecektir.
-                               // Eğer logout sonrası state güncellenmiyorsa, sorun başkadır.
-    };
-    // --- DÜZELTİLMİŞ KISIM SONU ---
-
-    return {
-      drawer,
-      menuItems,
-      userName,
-      handleLogout,
-    };
+const menuItems = computed(() => {
+  const items = [...baseMenuItems];
+  if (authStore.userRoles && authStore.userRoles.includes('general-admin')) {
+    items.push({ title: 'Admin Paneli', icon: 'mdi-shield-crown-outline', route: '/admin' });
+    items.push({ title: 'Tenant Yönetimi', icon: 'mdi-domain', route: '/admin/tenants' });
+    items.push({ title: 'Kullanıcı Yönetimi', icon: 'mdi-account-group-outline', route: '/admin/users' });
   }
+  return items;
+});
+
+// Kullanıcı Adı
+const userName = computed(() => {
+  const user = authStore.userProfile;
+  if (user) {
+    return user.name || user.preferred_username || user.email || 'Kullanıcı';
+  }
+  return 'Kullanıcı';
+});
+
+// Logout İşlevi
+const handleLogout = () => {
+  console.log('MainLayout: handleLogout called');
+  authStore.logout();
 };
+
+// Tema Değiştirme İşlevi
+const toggleTheme = () => {
+  const newTheme = theme.global.current.value.dark ? 'myCustomLightTheme' : 'myCustomDarkTheme';
+  theme.global.name.value = newTheme;
+  localStorage.setItem('userTheme', newTheme);
+};
+
+// Lifecycle Hooks
+onMounted(() => {
+  const savedTheme = localStorage.getItem('userTheme');
+  if (savedTheme && (savedTheme === 'myCustomLightTheme' || savedTheme === 'myCustomDarkTheme')) {
+    theme.global.name.value = savedTheme;
+  }
+
+  if (isDesktop.value) {
+    drawer.value = true;
+    rail.value = true;
+  } else {
+    drawer.value = false;
+    rail.value = false;
+  }
+});
 </script>
-  
-  <style scoped>
-  /* Özel stiller gerekirse buraya eklenebilir */
-  .v-list-item--active {
-    /* Aktif menü öğesi için özel stil (isteğe bağlı) */
-    background-color: rgba(var(--v-theme-primary), 0.1);
-  }
-  .v-navigation-drawer {
-    border-right: 1px solid #e0e0e0;
-  }
-  .v-app-bar {
-    box-shadow: 0 2px 4px -1px rgba(0,0,0,.2), 0 4px 5px 0 rgba(0,0,0,.14), 0 1px 10px 0 rgba(0,0,0,.12) !important;
-  }
-  </style>
-  
+
+<style scoped>
+.v-list-item--active {
+  border-left: 4px solid rgb(var(--v-theme-primary));
+  background-color: rgba(var(--v-theme-primary), 0.08);
+}
+.v-navigation-drawer {
+    border-right: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+}
+.v-btn.text-capitalize {
+  text-transform: none !important;
+  letter-spacing: normal !important;
+  font-weight: normal;
+}
+</style>

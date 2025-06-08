@@ -128,29 +128,33 @@ async function login(options = {}) {
   }
 }
 
-  async function logout(options = {}) {
-    // Doğrudan import edilen global 'keycloak' nesnesini kullan
-    if (keycloak && typeof keycloak.logout === 'function') {
-      try {
-        isLoading.value = true; // Opsiyonel
-        authError.value = null;
-        console.log("AuthStore: keycloak.logout() çağrılıyor...");
-        await keycloak.logout(options);
-        // Tarayıcı logout için Keycloak'a yönlenir ve sonra geri gelir.
-        // Geri dönüşte check-sso çalışır, setKeycloakAuth çağrılır ve isAuthenticated false olur.
-        // clearAuthState() doğrudan burada çağrılabilir veya setKeycloakAuth'un false durumuna bırakılabilir.
-        // Şimdilik clearAuthState() çağırmayalım, setKeycloakAuth halletsin.
-      } catch (error) {
-        console.error("AuthStore: Keycloak logout hatası", error);
-        authError.value = "Logout işlemi başarısız.";
-        isLoading.value = false;
-      }
-    } else {
-      console.error("AuthStore: Global Keycloak instance veya logout fonksiyonu bulunamadı.");
-      authError.value = "Kimlik doğrulama servisi düzgün başlatılamamış.";
-      isLoading.value = false;
+  async function logout() {
+  if (keycloak && typeof keycloak.logout === 'function') {
+    try {
+      console.log("AuthStore: keycloak.logout() çağrılıyor...");
+
+      // Çıkış sonrası yönlendirilecek tam URL'i belirtiyoruz.
+      const logoutOptions = {
+        redirectUri: window.location.origin + '/login', // Uygulamanızın login sayfasının tam adresi
+      };
+
+      await keycloak.logout(logoutOptions);
+
+      // Bu noktadan sonra tarayıcı Keycloak'a ve oradan da redirectUri'ye yönlenir.
+      // State'i temizleme işlemi, yönlendirme sonrası check-sso ile otomatik olarak gerçekleşecektir.
+    } catch (error) {
+      console.error("AuthStore: Keycloak logout hatası", error);
+      // Hata durumunda bile state'i manuel temizleyip yönlendirme yapabiliriz.
+      clearAuthState();
+      router.push('/login'); // Güvenlik için fallback
     }
+  } else {
+    console.error("AuthStore: Keycloak instance veya logout fonksiyonu bulunamadı.");
+    // Her durumda state'i temizle ve login'e yönlendir.
+    clearAuthState();
+    router.push('/login');
   }
+}
 
   return {
     storeKeycloakInstance, // Bu store'daki referans
