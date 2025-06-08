@@ -20,7 +20,9 @@ export const useTicketStore = defineStore('tickets', () => {
   const isCreating = ref(false); // Bilet oluşturma yüklenme durumu
   const error = ref(null); // Genel hata mesajı
   const createError = ref(null); // Bilet oluşturma hata mesajı
-
+  const currentTicketDetails = ref(null); // Görüntülenen biletin detayları
+  const isLoadingDetails = ref(false);    // Detay sayfası için yüklenme durumu
+  const detailsError = ref(null);         // Detay sayfası için hata durumu
   // --- Getters ---
   // (Şimdilik basit getter'lar yeterli)
 
@@ -98,7 +100,7 @@ export const useTicketStore = defineStore('tickets', () => {
     if (!authStore.isAuthenticated) {
       createError.value = 'Bilet oluşturmak için giriş yapmalısınız.';
       isCreating.value = false;
-      return false; // Başarısız
+      return false;
     }
 
     try {
@@ -107,13 +109,17 @@ export const useTicketStore = defineStore('tickets', () => {
 
       if (response.status === 201) {
         console.log('Bilet başarıyla oluşturuldu (store):', response.data);
-        // Başarılı oluşturma sonrası bilet listesini yenileyebiliriz
-        // veya sadece yeni bileti listeye ekleyebiliriz (daha verimli)
-        // Şimdilik sadece başarılı olduğunu belirtelim.
-        // await fetchTickets(); // Listeyi yenilemek için (opsiyonel)
+        
+        // --- YENİ EKLENEN KISIM ---
+        // Backend'den dönen yeni bileti alıyoruz
+        const newTicket = response.data;
+        // Mevcut bilet listesinin EN BAŞINA bu yeni bileti ekliyoruz.
+        // unshift(), dizinin başına eleman ekler.
+        tickets.value.unshift(newTicket);
+        // --- YENİ EKLENEN KISIM SONU ---
+
         return true; // Başarılı
       } else {
-        // Beklenmedik başarılı durum kodu
         throw new Error(`Beklenmedik yanıt kodu: ${response.status}`);
       }
     } catch (err) {
@@ -121,7 +127,6 @@ export const useTicketStore = defineStore('tickets', () => {
       if (err.response) {
         if (err.response.status === 401) {
           createError.value = 'Oturumunuz geçersiz veya süresi dolmuş. Lütfen tekrar giriş yapın.';
-          // Interceptor logout yapmalı
         } else if (err.response.status === 403) {
           createError.value = 'Bilet oluşturma yetkiniz yok.';
         } else if (err.response.data && err.response.data.detail) {
@@ -132,12 +137,78 @@ export const useTicketStore = defineStore('tickets', () => {
       } else {
         createError.value = 'Bilet oluşturulurken bir ağ hatası oluştu.';
       }
-      return false; // Başarısız
+      return false;
     } finally {
       isCreating.value = false;
     }
   }
+  async function fetchTicketDetails(ticketId) {
+    isLoadingDetails.value = true;
+    detailsError.value = null;
+    currentTicketDetails.value = null; // Önceki veriyi temizle
 
+    const authStore = useAuthStore();
+    if (!authStore.isAuthenticated) {
+      detailsError.value = 'Veri çekmek için giriş yapmalısınız.';
+      isLoadingDetails.value = false;
+      return;
+    }
+
+    try {
+      console.log(`Bilet detayları çekiliyor: ${ticketId}`);
+      const response = await apiClient.get(`${TICKET_SERVICE_URL}/tickets/${ticketId}`);
+      currentTicketDetails.value = response.data;
+      console.log("Bilet detayları başarıyla çekildi:", response.data);
+    } catch (err) {
+      console.error(`Bilet detayları çekilirken hata (ID: ${ticketId}):`, err.response || err);
+      detailsError.value = err.response?.data?.detail || 'Bilet detayları alınamadı.';
+    } finally {
+      isLoadingDetails.value = false;
+    }
+  }
+
+  async function addComment(ticketId, commentData) {
+    try {
+      const response = await apiClient.post(`${TICKET_SERVICE_URL}/tickets/${ticketId}/comments`, commentData);
+      const newComment = response.data;
+
+      // Yorum başarılı bir şekilde eklendiğinde, mevcut bilet detaylarındaki
+      // yorumlar listesini anında güncelleyelim.
+      if (currentTicketDetails.value && currentTicketDetails.value.comments) {
+        currentTicketDetails.value.comments.push(newComment);
+      }
+      return true; // Başarı durumunu döndür
+    } catch (err) {
+      console.error("Yorum eklenirken hata:", err.response || err);
+      // Hata yönetimi burada detaylandırılabilir.
+      return false; // Hata durumunu döndür
+    }
+  }
+
+  async function uploadAttachments(ticketId, files) {
+    const formData = new FormData();
+    files.forEach(file => {
+      formData.append("files", file);
+    });
+
+    try {
+      const response = await apiClient.post(`${TICKET_SERVICE_URL}/tickets/${ticketId}/attachments`, formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data'
+        }
+      });
+      const newAttachments = response.data;
+
+      // Başarılı yükleme sonrası mevcut biletin ekler listesini güncelle
+      if (currentTicketDetails.value && currentTicketDetails.value.attachments) {
+        currentTicketDetails.value.attachments.push(...newAttachments);
+      }
+      return true;
+    } catch (err) {
+      console.error("Dosya yüklenirken hata:", err.response || err);
+      return false;
+    }
+  }
 
   // Store'dan dışarıya açılacak state, getters ve actions
   return {
@@ -150,5 +221,11 @@ export const useTicketStore = defineStore('tickets', () => {
     createError, // Yeni state
     fetchTickets, // Yeniden adlandırıldı
     createTicket, // Yeni action
+    currentTicketDetails,
+    isLoadingDetails,
+    detailsError,
+    fetchTicketDetails,
+    addComment,
+    uploadAttachments,
   };
 });

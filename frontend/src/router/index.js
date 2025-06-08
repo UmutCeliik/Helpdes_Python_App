@@ -54,6 +54,18 @@ const router = createRouter({
           component: CreateTicketView,
           // meta: { requiresAuth: true }
         },
+        {
+          path: 'tickets/:ticketId', // /tickets/some-uuid-string gibi dinamik bir yol
+          name: 'TicketDetail',
+          component: () => import('@/views/TicketDetailView.vue'), // Yeni oluşturacağımız component
+          props: true, // Route parametrelerinin (ticketId) component'e prop olarak geçmesini sağlar
+        },
+        {
+          path: 'profile',
+          name: 'Profile',
+          component: () => import('@/views/ProfileView.vue'), // Yeni oluşturacağımız component
+          meta: { requiresAuth: true } // Bu sayfa için de login gerekli
+        },
         
         // --- YENİ ADMIN YOLLARI ---
         {

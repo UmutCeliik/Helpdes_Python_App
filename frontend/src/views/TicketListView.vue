@@ -65,7 +65,15 @@
         </template>
 
         <template v-slot:item.actions="{ item }">
-          <v-icon small class="me-2" @click="viewTicket(item)">mdi-eye</v-icon>
+          <v-btn
+            size="small"
+            variant="text"
+            color="primary"
+            :to="{ name: 'TicketDetail', params: { ticketId: item.id } }"
+            title="Bilet Detaylarını Görüntüle"
+          >
+            Detay
+          </v-btn>
         </template>
 
          <template v-slot:loading>

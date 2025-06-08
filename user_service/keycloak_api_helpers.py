@@ -415,85 +415,73 @@ async def remove_user_from_keycloak_group(user_id: str, group_id: str, settings:
         print(f"HATA (USER_SVC_KC_HELPER): Unexpected error removing user '{user_id}' from group '{group_id}': {e}")
     return False
 
-async def set_user_realm_roles(user_id: str, new_desired_role_names: List[str], settings: Settings) -> bool:
+async def set_user_realm_roles(user_id: str, new_role_names: List[str], settings: Settings) -> bool:
     """
-    Kullanıcının realm rollerini, verilen 'new_desired_role_names' listesiyle tam olarak eşleşecek şekilde ayarlar.
-    Mevcut fazla rolleri siler, eksik yeni rolleri ekler.
+    Bir kullanıcının realm rollerini, verilen listedeki rollerle tamamen günceller.
+    Mevcut rollerden fazla olanları siler, eksik olanları ekler.
     """
-    admin_token = await get_admin_api_token(settings)
-    if not admin_token:
-        print(f"HATA (USER_SVC_KC_HELPER): Rolleri ayarlamak için admin token alınamadı (user: {user_id}).")
-        return False
-    if not settings.keycloak.admin_api_realm_url:
-        print(f"HATA (USER_SVC_KC_HELPER): admin_api_realm_url yapılandırılmamış (rolleri ayarlama).")
-        return False
-
-    base_role_mappings_url = f"{settings.keycloak.admin_api_realm_url}/users/{user_id}/role-mappings/realm"
-    headers = {"Authorization": f"Bearer {admin_token}", "Content-Type": "application/json"}
-
-    # 1. Mevcut rolleri al
-    current_roles_rep: List[Dict[str, Any]] = []
+    log_prefix = f"HATA (set_user_realm_roles - User: {user_id}):"
     try:
+        admin_token = await get_admin_api_token(settings)
+        if not admin_token:
+            print(f"{log_prefix} Admin token alınamadı.")
+            return False
+
+        headers = {"Authorization": f"Bearer {admin_token}", "Content-Type": "application/json"}
+
+        # 1. Realm'deki mevcut tüm rolleri ve ID'lerini al
+        all_roles_url = f"{settings.keycloak.admin_api_realm_url}/roles"
         async with httpx.AsyncClient() as client:
-            response = await client.get(base_role_mappings_url, headers={"Authorization": f"Bearer {admin_token}"})
-            response.raise_for_status()
-            current_roles_rep = response.json() or []
-            current_role_names = {role['name'] for role in current_roles_rep}
-            print(f"USER_SVC_KC_HELPER: User '{user_id}' current roles: {current_role_names}")
-    except Exception as e:
-        print(f"HATA (USER_SVC_KC_HELPER): Kullanıcının ({user_id}) mevcut rolleri alınırken hata: {e}")
-        return False
-
-    # 2. İstenen yeni rollerin tam temsillerini (ID'leriyle birlikte) al
-    desired_roles_rep_map: Dict[str, Dict[str, Any]] = {} # name -> representation
-    for role_name in new_desired_role_names:
-        role_rep = await get_keycloak_realm_role_representation(role_name, settings)
-        if role_rep:
-            desired_roles_rep_map[role_name] = role_rep
-        else:
-            print(f"UYARI (USER_SVC_KC_HELPER): İstenen rol '{role_name}' Keycloak'ta bulunamadı, atlanacak (user: {user_id}).")
-    
-    desired_role_names_set = set(desired_roles_rep_map.keys())
-    print(f"USER_SVC_KC_HELPER: User '{user_id}' desired new roles (found in KC): {desired_role_names_set}")
-
-    # 3. Silinecek rolleri belirle (mevcutta var, yenide yok)
-    roles_to_delete_names = current_role_names - desired_role_names_set
-    roles_to_delete_reps = [role for role in current_roles_rep if role['name'] in roles_to_delete_names]
-
-    # 4. Eklenecek rolleri belirle (yenide var, mevcutte yok)
-    roles_to_add_names = desired_role_names_set - current_role_names
-    roles_to_add_reps = [desired_roles_rep_map[name] for name in roles_to_add_names]
-
-    all_successful = True
-
-    # 5. Rolleri Sil
-    if roles_to_delete_reps:
-        print(f"USER_SVC_KC_HELPER: Deleting roles {roles_to_delete_names} from user '{user_id}'")
-        try:
-            async with httpx.AsyncClient() as client:
-                # DELETE metodu için payload json=roles_to_delete_reps olmalı
-                request = httpx.Request("DELETE", base_role_mappings_url, json=roles_to_delete_reps, headers=headers)
-                response = await client.send(request)
-                response.raise_for_status()
-                print(f"USER_SVC_KC_HELPER: Roles deleted successfully for user '{user_id}'.")
-        except Exception as e:
-            print(f"HATA (USER_SVC_KC_HELPER): Kullanıcıdan ({user_id}) roller silinirken hata: {e}")
-            all_successful = False # Sadece logla, diğer işlemlere devam etmeyi deneyebiliriz veya burada kesebiliriz.
-                                   # Şimdilik devam etmeyi seçiyoruz.
-
-    # 6. Rolleri Ekle
-    if roles_to_add_reps:
-        print(f"USER_SVC_KC_HELPER: Adding roles {roles_to_add_names} to user '{user_id}'")
-        try:
-            async with httpx.AsyncClient() as client:
-                response = await client.post(base_role_mappings_url, json=roles_to_add_reps, headers=headers)
-                response.raise_for_status()
-                print(f"USER_SVC_KC_HELPER: Roles added successfully for user '{user_id}'.")
-        except Exception as e:
-            print(f"HATA (USER_SVC_KC_HELPER): Kullanıcıya ({user_id}) roller eklenirken hata: {e}")
-            all_successful = False
+            roles_response = await client.get(all_roles_url, headers=headers)
+            if roles_response.status_code != 200:
+                print(f"{log_prefix} Realm rolleri alınamadı. Status: {roles_response.status_code}")
+                return False
             
-    return all_successful
+            # Rol adını key, rol representation'ını value yapan bir map oluştur
+            available_roles_map = {role['name']: role for role in roles_response.json()}
+
+        # 2. Kullanıcının mevcut rollerini al
+        user_roles_url = f"{settings.keycloak.admin_api_realm_url}/users/{user_id}/role-mappings/realm"
+        async with httpx.AsyncClient() as client:
+            user_roles_response = await client.get(user_roles_url, headers=headers)
+            if user_roles_response.status_code != 200:
+                print(f"{log_prefix} Kullanıcının mevcut rolleri alınamadı. Status: {user_roles_response.status_code}")
+                return False
+            
+            current_user_roles_set = {role['name'] for role in user_roles_response.json()}
+
+        new_roles_set = set(new_role_names)
+
+        # 3. Hangi rollerin ekleneceğini, hangilerinin silineceğini hesapla
+        roles_to_add = new_roles_set - current_user_roles_set
+        roles_to_remove = current_user_roles_set - new_roles_set
+        
+        # 4. Silinecek rolleri Keycloak'tan kaldır
+        if roles_to_remove:
+            roles_to_remove_reps = [available_roles_map[name] for name in roles_to_remove if name in available_roles_map]
+            if roles_to_remove_reps:
+                async with httpx.AsyncClient() as client:
+                    delete_response = await client.request("DELETE", user_roles_url, headers=headers, json=roles_to_remove_reps)
+                    if delete_response.status_code != 204:
+                         print(f"{log_prefix} Roller silinirken hata. Status: {delete_response.status_code}, Response: {delete_response.text}")
+                         # Hata olsa bile devam etmeyi seçebiliriz.
+
+        # 5. Eklenecek rolleri Keycloak'a ekle
+        if roles_to_add:
+            roles_to_add_reps = [available_roles_map[name] for name in roles_to_add if name in available_roles_map]
+            if roles_to_add_reps:
+                async with httpx.AsyncClient() as client:
+                    add_response = await client.post(user_roles_url, headers=headers, json=roles_to_add_reps)
+                    if add_response.status_code != 204:
+                        print(f"{log_prefix} Roller eklenirken hata. Status: {add_response.status_code}, Response: {add_response.text}")
+                        return False
+
+        print(f"Başarılı (set_user_realm_roles - User: {user_id}): Roller güncellendi. Eklenen: {roles_to_add}, Silinen: {roles_to_remove}")
+        return True
+
+    except Exception as e:
+        print(f"{log_prefix} Beklenmedik hata: {e}")
+        return False
 
 async def update_keycloak_group(group_id: str, new_name: str, settings: Settings) -> bool:
     """
@@ -647,3 +635,62 @@ async def delete_keycloak_user(user_id: str, settings: Settings) -> bool:
     except Exception as e:
         print(f"HATA (USER_SVC_KC_HELPER): Unexpected error deleting user '{user_id}': {e}")
     return False
+
+# user_service/keycloak_api_helpers.py dosyasının içine ekleyin
+
+async def get_all_keycloak_users_paginated(settings: Settings) -> Optional[List[Dict[str, Any]]]:
+    """Keycloak'taki tüm kullanıcıları sayfalama yaparak çeker."""
+    admin_token = await get_admin_api_token(settings)
+    if not admin_token: return None
+
+    all_users = []
+    first = 0
+    max_results = 100  # Her seferinde kaç kullanıcı çekileceği
+    users_url = f"{settings.keycloak.admin_api_realm_url}/users"
+    headers = {"Authorization": f"Bearer {admin_token}"}
+
+    async with httpx.AsyncClient() as client:
+        while True:
+            params = {"first": first, "max": max_results}
+            response = await client.get(users_url, headers=headers, params=params)
+            if response.status_code != 200:
+                print(f"HATA (KC Helper): Kullanıcılar çekilemedi. Status: {response.status_code}")
+                return None
+            
+            users_page = response.json()
+            if not users_page:
+                break  # Çekilecek kullanıcı kalmadıysa döngüden çık
+            
+            all_users.extend(users_page)
+            first += max_results
+    
+    return all_users
+
+
+async def get_all_keycloak_groups_paginated(settings: Settings) -> Optional[List[Dict[str, Any]]]:
+    """Keycloak'taki tüm grupları sayfalama yaparak çeker."""
+    admin_token = await get_admin_api_token(settings)
+    if not admin_token: return None
+
+    all_groups = []
+    first = 0
+    max_results = 100
+    groups_url = f"{settings.keycloak.admin_api_realm_url}/groups"
+    headers = {"Authorization": f"Bearer {admin_token}"}
+    
+    async with httpx.AsyncClient() as client:
+        while True:
+            params = {"first": first, "max": max_results, "briefRepresentation": "false"}
+            response = await client.get(groups_url, headers=headers, params=params)
+            if response.status_code != 200:
+                print(f"HATA (KC Helper): Gruplar çekilemedi. Status: {response.status_code}")
+                return None
+
+            groups_page = response.json()
+            if not groups_page:
+                break
+
+            all_groups.extend(groups_page)
+            first += max_results
+            
+    return all_groups
