@@ -79,11 +79,4 @@ stages:
         failOnStdErr: false # Loglarda hata olsa bile pipeline'ı durdurma
 
     # Adım 5: İşi biten Kaniko pod'unu silerek cluster'ı temizle.
-    - task: Kubernetes@1
-      displayName: 'Delete Kaniko Pod'
-      condition: succeededOrFailed() # Pipeline başarılı da olsa başarısız da olsa bu adımı çalıştır
-      inputs:
-        connectionType: 'None'
-        namespace: '$(namespace)'
-        command: 'delete'
-        arguments: 'pod $(podName) --ignore-not-found=true'
+   
