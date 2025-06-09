@@ -34,7 +34,7 @@ variables:
   harborSecretName: 'harbor-credentials'
 
   # Azure DevOps'ta Kubernetes için oluşturduğumuz Service Connection'ın adı
-  k8sConnection: 'RKE2-Agent-Connection'
+  k8sConnection: 'RKE2ClusterConnection'
 
 stages:
 - stage: BuildWithKaniko
