@@ -1,16 +1,19 @@
 apiVersion: v1
 kind: Pod
 metadata:
-  # Pod'un adını pipeline'dan alacağız, burası bir yer tutucudur.
-  name: kaniko-build-pod
+  name: __POD_NAME__ # Bu, pipeline'da değiştirilecek
 spec:
   containers:
   - name: kaniko
     image: gcr.io/kaniko-project/executor:latest
-    # Argümanlar pipeline'dan gelecek, burası varsayılan/boş kalabilir.
-    args: []
+    args:
+      # Bu argüman listesi pipeline'da doldurulacak
+      - "--context=__CONTEXT__"
+      - "--dockerfile=__DOCKERFILE__"
+      - "--destination=__DESTINATION_TAG__"
+      - "--destination=__DESTINATION_LATEST__"
+      - "--cleanup"
     volumeMounts:
-    # Harbor kimlik bilgilerini içeren secret'ı pod'a bağlıyoruz.
     - name: harbor-credentials-volume
       mountPath: /kaniko/.docker/
   restartPolicy: Never
