@@ -1,0 +1,95 @@
+services:
+  # PostgreSQL Veritabanı Servisi
+  postgres:
+    image: postgres:15-alpine
+    container_name: helpdesk-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: Passw0rd12.
+      POSTGRES_DB: Helpdesk_Tickets_Dev
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - helpdesk-net
+    # YENİ EKLENDİ: Veritabanının bağlantı kabul etmeye hazır olduğunu kontrol eder.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d Helpdesk_Tickets_Dev"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # YENİ SERVİS: Sadece veritabanı migrasyonlarını çalıştırır ve çıkar.
+  alembic_runner:
+    build:
+      context: .
+      dockerfile: ./user_service/Dockerfile # user_service imajını temel alabiliriz
+    command: sh -c "alembic upgrade head"
+    depends_on:
+      postgres:
+        condition: service_healthy # Sadece postgres sağlıklı olduğunda başla
+    networks:
+      - helpdesk-net
+
+  # Ticket Servisi
+  ticket_service:
+    build:
+      context: .
+      dockerfile: ./ticket_service/Dockerfile
+    container_name: helpdesk-ticket-service
+    ports:
+      - "8000:8000"
+    # GÜNCELLENDİ: Sadece migrasyonlar bittikten sonra başla
+    depends_on:
+      alembic_runner:
+        condition: service_completed_successfully
+    networks:
+      - helpdesk-net
+
+  # User Servisi
+  user_service:
+    build:
+      context: .
+      dockerfile: ./user_service/Dockerfile
+    container_name: helpdesk-user-service
+    ports:
+      - "8001:8000"
+    # GÜNCELLENDİ: Sadece migrasyonlar bittikten sonra başla
+    depends_on:
+      alembic_runner:
+        condition: service_completed_successfully
+    networks:
+      - helpdesk-net
+  
+  # Auth Servisi
+  auth_service:
+    build:
+      context: .
+      dockerfile: ./auth_service/Dockerfile
+    container_name: helpdesk-auth-service
+    ports:
+      - "8002:8000"
+    networks:
+      - helpdesk-net
+
+  # Frontend Servisi
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: helpdesk-frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      - ticket_service
+      - user_service
+    networks:
+      - helpdesk-net
+
+networks:
+  helpdesk-net:
+    driver: bridge
+
+volumes:
+  postgres_data:

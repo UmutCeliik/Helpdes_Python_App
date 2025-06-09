@@ -1,5 +1,4 @@
 # user_service/main.py
-
 from __future__ import annotations
 import uuid
 from contextlib import asynccontextmanager
@@ -12,10 +11,14 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 
-# Yerel ve ortak modüllerin import edilmesi
-from database_pkg import db_models, schemas as common_schemas
-from database_pkg.database import SessionLocal, get_db
-from . import crud as user_crud, models as user_models, company_crud, keycloak_api_helpers
+# user_service'e ait yerel modüllerin import edilmesi
+# DÜZELTME: Tüm importları tek bir yerden ve doğru takma adlarla yapıyoruz.
+from . import crud as user_crud
+from . import company_crud
+from . import keycloak_api_helpers
+from . import db_models # SQLAlchemy modelleri
+from . import models as user_pydantic_models # Pydantic modelleri
+from .database import get_db, SessionLocal # SessionLocal'ı lifespan için import ediyoruz
 from .auth import get_current_user_payload, verify_internal_secret
 from .config import Settings, get_settings
 
@@ -38,7 +41,8 @@ async def sync_all_tenants_from_keycloak_on_startup(db: Session, settings: Setti
             company_in_db = company_crud.get_company_by_keycloak_group_id(db, keycloak_group_id=kc_group_uuid)
 
             if not company_in_db:
-                new_company_data = common_schemas.CompanyCreate(
+                # DÜZELTME: `common_schemas` yerine `user_pydantic_models` kullanılıyor.
+                new_company_data = user_pydantic_models.CompanyCreate(
                     name=kc_group_name,
                     keycloak_group_id=kc_group_uuid,
                     status="active"
@@ -46,7 +50,8 @@ async def sync_all_tenants_from_keycloak_on_startup(db: Session, settings: Setti
                 company_crud.create_company(db, company=new_company_data)
                 print(f"BİLGİ (Startup Sync): Yeni tenant eklendi: {kc_group_name}")
             elif company_in_db.name != kc_group_name:
-                company_crud.update_company(db, company_in_db, common_schemas.CompanyUpdate(name=kc_group_name))
+                # DÜZELTME: `common_schemas` yerine `user_pydantic_models` kullanılıyor.
+                company_crud.update_company(db, company_in_db, user_pydantic_models.CompanyUpdate(name=kc_group_name))
                 print(f"BİLGİ (Startup Sync): Tenant adı güncellendi: {kc_group_name}")
 
         print("STARTUP SYNC: Tenant senkronizasyonu tamamlandı.")
@@ -67,7 +72,8 @@ async def sync_all_users_from_keycloak_on_startup(db: Session, settings: Setting
             if not user_id_str or not user_rep.get("email"):
                 continue
 
-            user_create_data = user_models.UserCreateInternal(
+            # DÜZELTME: `user_models` yerine `user_pydantic_models` kullanılıyor.
+            user_create_data = user_pydantic_models.UserCreateInternal(
                 id=uuid.UUID(user_id_str),
                 email=user_rep.get("email"),
                 full_name=f"{user_rep.get('firstName', '')} {user_rep.get('lastName', '')}".strip() or user_rep.get("username"),
@@ -85,12 +91,11 @@ async def sync_all_users_from_keycloak_on_startup(db: Session, settings: Setting
 async def lifespan(app: FastAPI):
     """Uygulama yaşam döngüsü yöneticisi."""
     print("Uygulama başlıyor...")
+    # DÜZELTME: `SessionLocal` doğru import edildi.
     db_session = SessionLocal()
     app_settings = get_settings()
     try:
-        # Önce tenant'ları (şirketleri) senkronize et
         await sync_all_tenants_from_keycloak_on_startup(db=db_session, settings=app_settings)
-        # Sonra kullanıcıları senkronize et
         await sync_all_users_from_keycloak_on_startup(db=db_session, settings=app_settings)
     finally:
         db_session.close()
@@ -114,8 +119,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-class UserListResponse(BaseModel): # Yanıt için Pydantic modeli
-    items: List[user_models.User]
+class UserListResponse(BaseModel):
+    items: List[user_pydantic_models.User]
     total: int
 
 def _split_full_name(full_name: str) -> tuple[str, str]:
@@ -184,7 +189,7 @@ async def delete_tenant_by_admin(
     
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
-@app.get("/admin/users/{user_id}", response_model=user_models.User, tags=["Admin - User Management"])
+@app.get("/admin/users/{user_id}", response_model=user_pydantic_models.User, tags=["Admin - User Management"])
 async def read_user_details_for_admin(
     user_id: uuid.UUID,
     current_admin_payload: Annotated[dict, Depends(get_current_user_payload)],
@@ -221,7 +226,7 @@ async def read_user_details_for_admin(
 
 
     # Kullanıcının şirket (tenant) bilgisini al
-    user_company_info: Optional[common_schemas.CompanyBasicInfo] = None # Pydantic model tipini belirttik
+    user_company_info: Optional[user_pydantic_models.CompanyBasicInfo] = None # Pydantic model tipini belirttik
     kc_user_groups = await keycloak_api_helpers.get_user_keycloak_groups(str(user_id), settings)
     
     if kc_user_groups:
@@ -233,7 +238,7 @@ async def read_user_details_for_admin(
                     company_in_db = company_crud.get_company_by_keycloak_group_id(db, keycloak_group_id=kc_group_uuid)
                     if company_in_db:
                         # Pydantic modelini kullanarak şirket bilgisini oluştur
-                        user_company_info = common_schemas.CompanyBasicInfo(
+                        user_company_info = user_pydantic_models.CompanyBasicInfo(
                             id=company_in_db.id, 
                             name=company_in_db.name
                         )
@@ -243,7 +248,7 @@ async def read_user_details_for_admin(
                     continue
     
     # Yanıt modelini oluştur
-    user_response = user_models.User(
+    user_response = user_pydantic_models.User(
         id=db_user.id,
         email=db_user.email,
         full_name=db_user.full_name, # Keycloak'tan gelen güncel full_name de kullanılabilirdi.
@@ -255,10 +260,10 @@ async def read_user_details_for_admin(
     return user_response
 
 
-@app.patch("/admin/users/{user_id}", response_model=user_models.User, tags=["Admin - User Management"])
+@app.patch("/admin/users/{user_id}", response_model=user_pydantic_models.User, tags=["Admin - User Management"])
 async def update_user_for_admin(
     user_id: uuid.UUID,
-    user_update_data: user_models.AdminUserUpdateRequest,
+    user_update_data: user_pydantic_models.AdminUserUpdateRequest,
     current_admin_payload: Annotated[dict, Depends(get_current_user_payload)],
     settings: Annotated[Settings, Depends(get_settings)],
     db: Annotated[Session, Depends(get_db)] # <-- DEĞİŞİKLİK BURADA
@@ -310,14 +315,14 @@ async def update_user_for_admin(
         
         # Lokal DB'deki rolü güncelle (crud.get_or_create_user içindeki mantığa benzer)
         # Bu rol eşleme mantığı projenizin ihtiyaçlarına göre özelleştirilmelidir.
-        determined_local_role = common_schemas.Role.EMPLOYEE # Varsayılan
+        determined_local_role = user_pydantic_models.Role.EMPLOYEE # Varsayılan
         if user_update_data.roles:
-            if "general-admin" in user_update_data.roles and hasattr(common_schemas.Role, "GENERAL_ADMIN"):
-                 determined_local_role = common_schemas.Role.GENERAL_ADMIN
-            elif "helpdesk-admin" in user_update_data.roles and hasattr(common_schemas.Role, "HELPDESK_ADMIN"):
-                 determined_local_role = common_schemas.Role.HELPDESK_ADMIN
-            elif common_schemas.Role.AGENT.value in user_update_data.roles:
-                determined_local_role = common_schemas.Role.AGENT
+            if "general-admin" in user_update_data.roles and hasattr(user_pydantic_models.Role, "GENERAL_ADMIN"):
+                 determined_local_role = user_pydantic_models.Role.GENERAL_ADMIN
+            elif "helpdesk-admin" in user_update_data.roles and hasattr(user_pydantic_models.Role, "HELPDESK_ADMIN"):
+                 determined_local_role = user_pydantic_models.Role.HELPDESK_ADMIN
+            elif user_pydantic_models.Role.AGENT.value in user_update_data.roles:
+                determined_local_role = user_pydantic_models.Role.AGENT
             # EMPLOYEE zaten varsayılan olduğu için son else'e kalabilir
         
         if db_user.role != determined_local_role:
@@ -368,17 +373,39 @@ async def update_user_for_admin(
     # Bu, tüm bağlı verilerin (yeni roller, yeni şirket) doğru şekilde yüklenmesini sağlar.
     return await read_user_details_for_admin(user_id, current_admin_payload, settings, db)
 
-
-
+@app.get("/internal/users/{user_id}", response_model=user_pydantic_models.User, tags=["Internal"])
+async def get_user_for_internal_service(
+    user_id: uuid.UUID,
+    # Bu endpoint'in sadece diğer servisler tarafından çağrıldığından emin olmak için
+    # basit bir "shared secret" doğrulaması kullanıyoruz.
+    is_internal: Annotated[bool, Depends(verify_internal_secret)],
+    db: Session = Depends(get_db)
+):
+    """
+    İç servis iletişimi için belirli bir kullanıcının detaylarını döndürür.
+    """
+    if not is_internal:
+        # Bu hata normalde `verify_internal_secret` içinde fırlatılır,
+        # ama ekstra bir güvenlik katmanı olarak kalabilir.
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Yetkisiz erişim.")
+    
+    print(f"INTERNAL CALL: Fetching details for user_id: {user_id}")
+    db_user = user_crud.get_user_by_keycloak_id(db, keycloak_id=user_id)
+    
+    if not db_user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Kullanıcı bulunamadı.")
+        
+    # Yanıtı Pydantic modeline uygun şekilde döndür
+    return db_user
 
 @app.post(
     "/admin/users",
-    response_model=user_models.User,
+    response_model=user_pydantic_models.User,
     status_code=status.HTTP_201_CREATED,
     summary="Yeni bir kullanıcı oluşturur (Keycloak + Lokal DB) (Sadece General Admin)"
 )
 async def admin_create_user(
-    request_data: user_models.AdminUserCreateRequest,
+    request_data: user_pydantic_models.AdminUserCreateRequest,
     current_user_payload: Annotated[Dict[str, Any], Depends(get_current_user_payload)],
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings)
@@ -469,7 +496,7 @@ async def admin_create_user(
         print(f"KRİTİK HATA ({log_prefix}): Keycloak'tan dönen kullanıcı ID'si ('{new_kc_user_id_str}') geçerli bir UUID değil.")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Keycloak'tan geçersiz kullanıcı ID formatı alındı.")
 
-    user_data_for_local_db = user_models.UserCreateInternal(
+    user_data_for_local_db = user_pydantic_models.UserCreateInternal(
         id=new_user_keycloak_id_uuid, # Keycloak'tan gelen ID
         email=request_data.email,
         full_name=request_data.full_name,
@@ -493,7 +520,7 @@ async def admin_create_user(
     print(f"{log_prefix} User '{db_user.email}' (ID: {db_user.id}) successfully created in Keycloak and synced to local DB.")
     
     # Yanıt modelini oluştururken, Keycloak'a atanan rolleri (request_data.roles) kullanalım
-    return user_models.User(
+    return user_pydantic_models.User(
         id=db_user.id,
         email=db_user.email,
         full_name=db_user.full_name,
@@ -501,6 +528,50 @@ async def admin_create_user(
         is_active=db_user.is_active,
         created_at=db_user.created_at 
     )
+
+@app.post("/internal/users/sync", response_model=user_pydantic_models.User, tags=["Internal"])
+async def sync_user_internally(
+    sync_data: user_pydantic_models.UserCreateInternal, # JIT için gelen veri
+    db: Session = Depends(get_db),
+    # is_internal: Annotated[bool, Depends(verify_internal_secret)], # Güvenlik için eklenebilir
+):
+    """
+    İç servis çağrısıyla kullanıcıyı lokal DB'ye senkronize eder/oluşturur
+    ve kullanıcının tenant bilgisini de günceller.
+    """
+    # if not is_internal: raise HTTPException(status_code=403, detail="Yetkisiz erişim.")
+
+    # 1. Kullanıcıyı lokal DB'de oluştur veya bilgilerini güncelle
+    db_user = user_crud.get_or_create_user(db=db, user_data=sync_data)
+    
+    # 2. Keycloak'tan gelen grup bilgisine göre kullanıcının şirketini (tenant) ayarla
+    user_company_info = None
+    if sync_data.keycloak_groups:
+        # Şimdilik ilk grubu kullanıcının ana grubu olarak kabul ediyoruz
+        group_path = sync_data.keycloak_groups[0]
+        # Bu path'ten grup ID'sini ve adını almamız gerekebilir,
+        # şimdilik sadece path'in adını şirket adı olarak varsayalım.
+        # İdealde burada keycloak_api_helpers kullanılır.
+        group_name = group_path.strip("/").split("/")[-1]
+        
+        company = company_crud.get_company_by_name(db, name=group_name)
+        if company:
+            db_user.company_id = company.id
+            db.commit()
+            db.refresh(db_user)
+            user_company_info = user_pydantic_models.CompanyBasicInfo.from_orm(company)
+
+    # 3. Frontend ve diğer servislerin kullanması için tam kullanıcı modelini döndür
+    response_user = user_pydantic_models.User(
+        id=db_user.id,
+        email=db_user.email,
+        full_name=db_user.full_name,
+        is_active=db_user.is_active,
+        created_at=db_user.created_at,
+        roles=sync_data.roles,
+        company=user_company_info
+    )
+    return response_user
 
 @app.get(
     "/admin/users", 
@@ -527,14 +598,14 @@ async def list_users_for_admin(
     
     # Pydantic user_models.User listesine dönüştür
     # ve roles alanını DB'deki role enum değerinden oluştur
-    pydantic_users: List[user_models.User] = []
+    pydantic_users: List[user_pydantic_models.User] = []
     for db_user in db_users:
         # DB'deki enum rolünü string listesine çevir (user_models.User 'roles: List[str]' bekliyor)
         # Eğer db_user.role None olma ihtimali varsa ona göre kontrol ekleyin.
         db_role_str_list = [str(db_user.role.value)] if db_user.role else []
         
         pydantic_users.append(
-            user_models.User(
+            user_pydantic_models.User(
                 id=db_user.id,
                 email=db_user.email,
                 full_name=db_user.full_name,
@@ -551,9 +622,9 @@ async def read_root_user_service():
     return {"message": "User Service API çalışıyor"}
 
 
-@app.post("/admin/tenants", response_model=common_schemas.Company, status_code=status.HTTP_201_CREATED, summary="Yeni bir tenant (müşteri şirketi) oluşturur (Sadece General Admin)")
+@app.post("/admin/tenants", response_model=user_pydantic_models.Company, status_code=status.HTTP_201_CREATED, summary="Yeni bir tenant (müşteri şirketi) oluşturur (Sadece General Admin)")
 async def create_new_tenant(
-    tenant_request: user_models.TenantCreateRequest, 
+    tenant_request: user_pydantic_models.TenantCreateRequest, 
     current_user_payload: Annotated[Dict[str, Any], Depends(get_current_user_payload)],
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings)
@@ -597,7 +668,7 @@ async def create_new_tenant(
         print(f"HATA (POST /admin/tenants): Keycloak group ID '{keycloak_group_uuid}' already linked to local company '{existing_company_by_kc_id.name}'. This is an inconsistency.")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Kritik sistem hatası: Keycloak grup ID çakışması.")
 
-    company_to_create = common_schemas.CompanyCreate(
+    company_to_create = user_pydantic_models.CompanyCreate(
         name=tenant_request.name,
         keycloak_group_id=keycloak_group_uuid,
         status="active" 
@@ -616,7 +687,7 @@ async def create_new_tenant(
         print(f"HATA (POST /admin/tenants): Veritabanına şirket kaydedilirken beklenmedik hata: {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Şirket veritabanına kaydedilirken bir hata oluştu.")
 
-@app.get("/admin/tenants", response_model=common_schemas.CompanyList, summary="Tüm tenantları (müşteri şirketlerini) listeler (Sadece General Admin)")
+@app.get("/admin/tenants", response_model=user_pydantic_models.CompanyList, summary="Tüm tenantları (müşteri şirketlerini) listeler (Sadece General Admin)")
 async def list_tenants(
     current_user_payload: Annotated[Dict[str, Any], Depends(get_current_user_payload)],
     db: Session = Depends(get_db),
@@ -635,9 +706,9 @@ async def list_tenants(
     companies = company_crud.get_companies(db, skip=skip, limit=limit)
     total_companies = company_crud.count_companies(db)
     
-    return common_schemas.CompanyList(items=companies, total=total_companies)
+    return user_pydantic_models.CompanyList(items=companies, total=total_companies)
 
-@app.get("/admin/tenants/{company_id}", response_model=common_schemas.Company, summary="Belirli bir tenantın detaylarını getirir (Sadece General Admin)")
+@app.get("/admin/tenants/{company_id}", response_model=user_pydantic_models.Company, summary="Belirli bir tenantın detaylarını getirir (Sadece General Admin)")
 async def get_tenant_details(
     company_id: uuid.UUID, 
     current_user_payload: Annotated[Dict[str, Any], Depends(get_current_user_payload)],
@@ -659,10 +730,10 @@ async def get_tenant_details(
     
     return db_company
 
-@app.patch("/admin/tenants/{company_id}", response_model=common_schemas.Company, summary="Belirli bir tenantın statüsünü veya adını günceller (Sadece General Admin)")
+@app.patch("/admin/tenants/{company_id}", response_model=user_pydantic_models.Company, summary="Belirli bir tenantın statüsünü veya adını günceller (Sadece General Admin)")
 async def update_tenant_details( # Fonksiyon adını daha genel yaptım
     company_id: uuid.UUID, 
-    company_update_request: common_schemas.CompanyUpdate, # database_pkg.schemas.CompanyUpdate Pydantic modeli
+    company_update_request: user_pydantic_models.CompanyUpdate, # database_pkg.schemas.CompanyUpdate Pydantic modeli
     current_user_payload: Annotated[Dict[str, Any], Depends(get_current_user_payload)],
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings)
@@ -776,10 +847,10 @@ async def admin_delete_user(
     # Her iki silme işlemi de "başarılı" (yani kullanıcı artık sistemde tanımlı değil) ise 204 dön.
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
-@app.patch("/admin/users/{user_id}", response_model=user_models.User, tags=["Admin - Users"])
+@app.patch("/admin/users/{user_id}", response_model=user_pydantic_models.User, tags=["Admin - Users"])
 async def admin_update_user(
     user_id: uuid.UUID,
-    update_data: user_models.AdminUserUpdateRequest,
+    update_data: user_pydantic_models.AdminUserUpdateRequest,
     current_admin_payload: Annotated[Dict, Depends(get_current_user_payload)],
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
@@ -829,7 +900,7 @@ async def admin_update_user(
     updated_user_response = await get_user_details_for_admin(user_id, current_admin_payload, db, settings)
     
     # get_or_create_user'ı çağırarak lokal DB'deki temel bilgilerin de (isim, rol vs.) güncel olduğundan emin olalım
-    user_crud.get_or_create_user(db, user_models.UserCreateInternal(
+    user_crud.get_or_create_user(db, user_pydantic_models.UserCreateInternal(
         id=updated_user_response.id,
         email=updated_user_response.email,
         full_name=updated_user_response.full_name,
@@ -839,7 +910,7 @@ async def admin_update_user(
     
     return updated_user_response
 
-@app.get("/admin/users/{user_id}", response_model=user_models.User, tags=["Admin - Users"])
+@app.get("/admin/users/{user_id}", response_model=user_pydantic_models.User, tags=["Admin - Users"])
 async def get_user_details_for_admin(
     user_id: uuid.UUID,
     current_admin_payload: Annotated[Dict, Depends(get_current_user_payload)],
@@ -867,11 +938,11 @@ async def get_user_details_for_admin(
             try:
                 company = company_crud.get_company_by_keycloak_group_id(db, uuid.UUID(kc_group_id_str))
                 if company:
-                    user_company_info = common_schemas.CompanyBasicInfo.from_orm(company)
+                    user_company_info = user_pydantic_models.CompanyBasicInfo.from_orm(company)
             except (ValueError, IndexError):
                 print(f"UYARI: Kullanıcı grupları işlenirken hata oluştu. ID: {user_id}")
 
-    return user_models.User(
+    return user_pydantic_models.User(
         id=db_user.id,
         email=db_user.email,
         full_name=db_user.full_name,
@@ -881,21 +952,21 @@ async def get_user_details_for_admin(
         company=user_company_info
     )
 
-@app.post("/users/sync-from-keycloak", response_model=user_models.User, tags=["Internal"])
+@app.post("/users/sync-from-keycloak", response_model=user_pydantic_models.User, tags=["Internal"])
 async def sync_user_from_keycloak(
-    user_in: user_models.UserCreateInternal,
+    user_in: user_pydantic_models.UserCreateInternal,
     is_internal: Annotated[bool, Depends(verify_internal_secret)],
     db: Session = Depends(get_db)
 ):
     """İç servis çağrısıyla kullanıcıyı lokal DB'ye senkronize eder/oluşturur."""
     if not is_internal: raise HTTPException(status_code=403, detail="Yetkisiz erişim.")
     db_user = user_crud.get_or_create_user(db=db, user_data=user_in)
-    return user_models.User(
+    return user_pydantic_models.User(
         id=db_user.id, email=db_user.email, full_name=db_user.full_name,
         roles=user_in.roles, is_active=db_user.is_active, created_at=db_user.created_at
     )
 
-@app.get("/users/me", response_model=user_models.User, tags=["Users"])
+@app.get("/users/me", response_model=user_pydantic_models.User, tags=["Users"])
 async def read_users_me(
     current_user_payload: Annotated[Dict, Depends(get_current_user_payload)],
     db: Session = Depends(get_db)
@@ -906,7 +977,7 @@ async def read_users_me(
     if not keycloak_id_str or not email:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Token içinde ID veya e-posta eksik.")
 
-    user_data = user_models.UserCreateInternal(
+    user_data = user_pydantic_models.UserCreateInternal(
         id=uuid.UUID(keycloak_id_str),
         email=email,
         full_name=current_user_payload.get("name", email),
@@ -915,7 +986,7 @@ async def read_users_me(
     )
     db_user = user_crud.get_or_create_user(db=db, user_data=user_data)
     
-    return user_models.User(
+    return user_pydantic_models.User(
         id=db_user.id, email=db_user.email, full_name=db_user.full_name,
         roles=user_data.roles, is_active=db_user.is_active, created_at=db_user.created_at
     )

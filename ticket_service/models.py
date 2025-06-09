@@ -3,7 +3,15 @@ from pydantic import BaseModel, Field
 from typing import Optional, List # List'i import ettiğinizden emin olun
 import uuid
 from datetime import datetime
-from database_pkg.schemas import Role
+
+class UserInTicketResponse(BaseModel):
+    """Bilet yanıtlarında gösterilecek temel kullanıcı bilgisi."""
+    id: uuid.UUID
+    full_name: str
+    email: str
+
+    class Config:
+        from_attributes = True
 
 # --- YENİ: Yorumlar için Pydantic modeli ---
 class Comment(BaseModel):
@@ -48,6 +56,7 @@ class Ticket(TicketBase):
 class TicketWithDetails(Ticket):
     comments: List[Comment] = []
     attachments: List[Attachment] = []
+    creator_details: Optional[UserInTicketResponse] = None
     # İsteğe bağlı olarak oluşturan kullanıcının detaylarını da ekleyebiliriz.
 
 class TicketUpdate(BaseModel):

@@ -1,11 +1,12 @@
 # user_service/crud.py
 from sqlalchemy.orm import Session
 import uuid
-# Ortak DB modelini ve User Pydantic modelini import et
-from database_pkg import db_models
-from . import models # Kendi Pydantic modelleri
-from database_pkg.schemas import Role as RoleEnum
 from typing import Optional, List
+
+# Kendi servisimize ait modelleri import ediyoruz
+from . import db_models
+from . import models
+from .models import Role as RoleEnum
 
 def get_user_by_keycloak_id(db: Session, keycloak_id: uuid.UUID) -> Optional[db_models.User]:
     return db.query(db_models.User).filter(db_models.User.id == keycloak_id).first()

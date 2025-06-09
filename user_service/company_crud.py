@@ -3,8 +3,9 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 import uuid
 
-from database_pkg import db_models  # SQLAlchemy modelleri (Company, User, Ticket)
-from database_pkg import schemas   # Pydantic modelleri (CompanyCreate, CompanyUpdate vb.)
+# Kendi servisimize ait modelleri import ediyoruz
+from . import db_models  # SQLAlchemy modelleri (Company, User)
+from . import models as schemas # Pydantic modelleri (CompanyCreate, vb.) artık kendi models.py dosyamızda
 
 def create_company(db: Session, company: schemas.CompanyCreate) -> db_models.Company:
     """
