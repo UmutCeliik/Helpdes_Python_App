@@ -1,68 +1,76 @@
+# docker-compose.yml DOSYASININ TAM VE DÜZELTİLMİŞ HALİ
+
 services:
-  # PostgreSQL Veritabanı Servisi
-  postgres:
+  # --- Veritabanı Servisleri ---
+  user-db:
     image: postgres:15-alpine
-    container_name: helpdesk-postgres
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: Passw0rd12.
-      POSTGRES_DB: Helpdesk_Tickets_Dev
+    container_name: helpdesk-user-db
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - user_postgres_data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_USER=user_admin
+      - POSTGRES_PASSWORD=Passw0rd12.
+      - POSTGRES_DB=user_db
     ports:
-      - "5432:5432"
-    networks:
+      - "5433:5432"
+    networks: # <-- Bu veritabanı ağa dahil
       - helpdesk-net
-    # YENİ EKLENDİ: Veritabanının bağlantı kabul etmeye hazır olduğunu kontrol eder.
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d Helpdesk_Tickets_Dev"]
+      test: ["CMD-SHELL", "pg_isready -U user_admin -d user_db"]
       interval: 5s
       timeout: 5s
       retries: 5
 
-  # YENİ SERVİS: Sadece veritabanı migrasyonlarını çalıştırır ve çıkar.
-  alembic_runner:
-    build:
-      context: .
-      dockerfile: ./user_service/Dockerfile # user_service imajını temel alabiliriz
-    command: sh -c "alembic upgrade head"
-    depends_on:
-      postgres:
-        condition: service_healthy # Sadece postgres sağlıklı olduğunda başla
-    networks:
-      - helpdesk-net
-
-  # Ticket Servisi
-  ticket_service:
-    build:
-      context: .
-      dockerfile: ./ticket_service/Dockerfile
-    container_name: helpdesk-ticket-service
+  ticket-db:
+    image: postgres:15-alpine
+    container_name: helpdesk-ticket-db
+    volumes:
+      - ticket_postgres_data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_USER=ticket_admin
+      - POSTGRES_PASSWORD=Passw0rd12.
+      - POSTGRES_DB=ticket_db
     ports:
-      - "8000:8000"
-    # GÜNCELLENDİ: Sadece migrasyonlar bittikten sonra başla
-    depends_on:
-      alembic_runner:
-        condition: service_completed_successfully
-    networks:
+      - "5434:5432"
+    networks: # <-- Bu veritabanı ağa dahil
       - helpdesk-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ticket_admin -d ticket_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
-  # User Servisi
+  # --- Backend Servisleri ---
   user_service:
     build:
       context: .
       dockerfile: ./user_service/Dockerfile
     container_name: helpdesk-user-service
+    environment:
+      - DATABASE_URL=postgresql://user_admin:Passw0rd12.@user-db:5432/user_db
     ports:
       - "8001:8000"
-    # GÜNCELLENDİ: Sadece migrasyonlar bittikten sonra başla
     depends_on:
-      alembic_runner:
-        condition: service_completed_successfully
-    networks:
+      user-db:
+        condition: service_healthy
+    networks: # <-- EKLENEN SATIRLAR
+      - helpdesk-net
+
+  ticket_service:
+    build:
+      context: .
+      dockerfile: ./ticket_service/Dockerfile
+    container_name: helpdesk-ticket-service
+    environment:
+      - DATABASE_URL=postgresql://ticket_admin:Passw0rd12.@ticket-db:5432/ticket_db
+    ports:
+      - "8000:8000"
+    depends_on:
+      ticket-db:
+        condition: service_healthy
+    networks: # <-- EKLENEN SATIRLAR
       - helpdesk-net
   
-  # Auth Servisi
   auth_service:
     build:
       context: .
@@ -70,10 +78,10 @@ services:
     container_name: helpdesk-auth-service
     ports:
       - "8002:8000"
-    networks:
+    networks: # <-- EKLENEN SATIRLAR
       - helpdesk-net
 
-  # Frontend Servisi
+  # --- Frontend Servisi ---
   frontend:
     build:
       context: ./frontend
@@ -82,14 +90,17 @@ services:
     ports:
       - "5173:80"
     depends_on:
-      - ticket_service
       - user_service
-    networks:
+      - ticket_service
+      - auth_service
+    networks: # <-- Bu zaten ağa dahildi
       - helpdesk-net
 
+# --- Ağ ve Volüm Tanımları ---
 networks:
   helpdesk-net:
     driver: bridge
 
 volumes:
-  postgres_data:
+  user_postgres_data:
+  ticket_postgres_data:
