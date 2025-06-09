@@ -1,3 +1,5 @@
+# azure-pipelines.yml - Final Sürüm
+
 trigger:
   branches:
     include:
@@ -7,17 +9,18 @@ trigger:
       - 'user_service/*'
 
 pool:
-  name: 'Default'
+  name: 'Default' # Lütfen bu adı kendi ADO Pool adın ile değiştir
 
 variables:
   serviceName: 'user-service'
   harborRepo: 'harbor.cloudpro.com.tr/helpdesk/$(serviceName)'
   imageTag: '$(Build.BuildId)'
-  buildContext: 'dir://$(Build.SourcesDirectory)' # Kaniko için doğru context formatı
+  buildContext: 'dir://$(Build.SourcesDirectory)'
   dockerfilePath: '$(Build.SourcesDirectory)/$(serviceName)/Dockerfile'
   namespace: 'ado-agents'
   podName: 'kaniko-build-pod-$(imageTag)'
-  k8sConnection: 'RKE2-Kubeconfig-Connection' # Bir önceki adımda oluşturduğun bağlantı adı
+  kanikoTemplateFile: '$(Build.SourcesDirectory)/kaniko-pod-template.yaml'
+  kanikoFinalFile: '$(Build.ArtifactStagingDirectory)/kaniko-pod-final.yaml'
 
 stages:
 - stage: BuildWithKaniko
@@ -26,58 +29,61 @@ stages:
   - job: KanikoJob
     displayName: 'Build Image for $(serviceName)'
     steps:
+
+    # Adım 1: Şablonu alıp, içindeki değişkenleri doldurarak nihai YAML'ı oluştur.
     - task: Bash@3
-      displayName: 'Create Kaniko Pod Manifest from Template'
+      displayName: 'Create Final Kaniko Manifest from Template'
       inputs:
         targetType: 'inline'
         script: |
-          # Şablon dosyasını kopyalayıp nihai dosyayı oluştur
-          cp $(Build.SourcesDirectory)/kaniko-pod-template.yaml $(Build.ArtifactStagingDirectory)/kaniko-pod-final.yaml
+          echo "Creating final manifest from template..."
+          # Şablon dosyasını geçici bir alana kopyala
+          cp "$(kanikoTemplateFile)" "$(kanikoFinalFile)"
           
-          # sed komutu ile yer tutucuları gerçek değerlerle değiştir
-          sed -i "s|__POD_NAME__|$(podName)|g" $(Build.ArtifactStagingDirectory)/kaniko-pod-final.yaml
-          sed -i "s|__CONTEXT__|$(buildContext)|g" $(Build.ArtifactStagingDirectory)/kaniko-pod-final.yaml
-          sed -i "s|__DOCKERFILE__|$(dockerfilePath)|g" $(Build.ArtifactStagingDirectory)/kaniko-pod-final.yaml
-          sed -i "s|__DESTINATION_TAG__|$(harborRepo):$(imageTag)|g" $(Build.ArtifactStagingDirectory)/kaniko-pod-final.yaml
-          sed -i "s|__DESTINATION_LATEST__|$(harborRepo):latest|g" $(Build.ArtifactStagingDirectory)/kaniko-pod-final.yaml
+          # sed komutu ile şablondaki yer tutucuları pipeline değişkenleri ile değiştir
+          sed -i "s|__POD_NAME__|$(podName)|g" "$(kanikoFinalFile)"
+          sed -i "s|__CONTEXT__|$(buildContext)|g" "$(kanikoFinalFile)"
+          sed -i "s|__DOCKERFILE__|$(dockerfilePath)|g" "$(kanikoFinalFile)"
+          sed -i "s|__DESTINATION_TAG__|$(harborRepo):$(imageTag)|g" "$(kanikoFinalFile)"
+          sed -i "s|__DESTINATION_LATEST__|$(harborRepo):latest|g" "$(kanikoFinalFile)"
           
-          echo "Final Kaniko pod manifest created:"
-          cat $(Build.ArtifactStagingDirectory)/kaniko-pod-final.yaml
+          echo "Final Kaniko pod manifest content:"
+          cat "$(kanikoFinalFile)"
 
+    # Adım 2: Önceki adımda oluşturduğumuz nihai ve temiz YAML dosyasını uygula.
     - task: Kubernetes@1
-      displayName: 'Run Kaniko Pod from Manifest'
+      displayName: 'Apply Kaniko Pod Manifest'
       inputs:
-        connectionType: 'Kubernetes Service Connection'
-        kubernetesServiceEndpoint: '$(k8sConnection)'
+        connectionType: 'None' # Ajanın kendi kimliğini kullan
         namespace: '$(namespace)'
         command: 'apply'
-        # Önceki adımda oluşturduğumuz nihai dosyayı kullanıyoruz
-        arguments: '-f $(Build.ArtifactStagingDirectory)/kaniko-pod-final.yaml'
+        arguments: '-f $(kanikoFinalFile)'
 
+    # Adım 3: Kaniko pod'unun işini bitirmesini bekle.
     - task: Kubernetes@1
       displayName: 'Wait for Kaniko Pod to Complete'
       inputs:
-        connectionType: 'Kubernetes Service Connection'
-        kubernetesServiceEndpoint: '$(k8sConnection)'
+        connectionType: 'None'
         namespace: '$(namespace)'
         command: 'wait'
         arguments: 'pod/$(podName) --for=condition=Succeeded --timeout=10m'
 
+    # Adım 4: Kaniko pod'unun loglarını göster (hata ayıklama için).
     - task: Kubernetes@1
       displayName: 'Get Kaniko Pod Logs'
       inputs:
-        connectionType: 'Kubernetes Service Connection'
-        kubernetesServiceEndpoint: '$(k8sConnection)'
+        connectionType: 'None'
         namespace: '$(namespace)'
         command: 'logs'
         arguments: '$(podName)'
+        failOnStdErr: false # Loglarda hata olsa bile pipeline'ı durdurma
 
+    # Adım 5: İşi biten Kaniko pod'unu silerek cluster'ı temizle.
     - task: Kubernetes@1
       displayName: 'Delete Kaniko Pod'
+      condition: succeededOrFailed() # Pipeline başarılı da olsa başarısız da olsa bu adımı çalıştır
       inputs:
-        connectionType: 'Kubernetes Service Connection'
-        kubernetesServiceEndpoint: '$(k8sConnection)'
+        connectionType: 'None'
         namespace: '$(namespace)'
         command: 'delete'
-        # --ignore-not-found=true, pod zaten --cleanup ile silinmişse hata vermesini önler
         arguments: 'pod $(podName) --ignore-not-found=true'
