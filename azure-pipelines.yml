@@ -13,11 +13,11 @@ variables:
   serviceName: 'user-service'
   harborRepo: 'harbor.cloudpro.com.tr/helpdesk/$(serviceName)'
   imageTag: '$(Build.BuildId)'
-  buildContext: '$(Build.SourcesDirectory)'
+  buildContext: 'dir://$(Build.SourcesDirectory)' # Kaniko için doğru context formatı
   dockerfilePath: '$(Build.SourcesDirectory)/$(serviceName)/Dockerfile'
   namespace: 'ado-agents'
-  # Yeni eklenen değişken: Her build için benzersiz pod adı
   podName: 'kaniko-build-pod-$(imageTag)'
+  k8sConnection: 'RKE2-Kubeconfig-Connection' # Bir önceki adımda oluşturduğun bağlantı adı
 
 stages:
 - stage: BuildWithKaniko
@@ -26,44 +26,48 @@ stages:
   - job: KanikoJob
     displayName: 'Build Image for $(serviceName)'
     steps:
-    - task: Kubernetes@1
-      displayName: 'Create Kaniko Pod from file'
+    - task: Bash@3
+      displayName: 'Create Kaniko Pod Manifest from Template'
       inputs:
-        # Service Connection'a artık gerek yok, ajan kendi kimliğini kullanıyor.
-        connectionType: 'None'
-        namespace: '$(namespace)'
-        command: 'apply'
-        # Pod şablon dosyamızı kullanıyoruz
-        arguments: '-f $(Build.SourcesDirectory)/kaniko-pod.yaml'
+        targetType: 'inline'
+        script: |
+          # Şablon dosyasını kopyalayıp nihai dosyayı oluştur
+          cp $(Build.SourcesDirectory)/kaniko-pod-template.yaml $(Build.ArtifactStagingDirectory)/kaniko-pod-final.yaml
+          
+          # sed komutu ile yer tutucuları gerçek değerlerle değiştir
+          sed -i "s|__POD_NAME__|$(podName)|g" $(Build.ArtifactStagingDirectory)/kaniko-pod-final.yaml
+          sed -i "s|__CONTEXT__|$(buildContext)|g" $(Build.ArtifactStagingDirectory)/kaniko-pod-final.yaml
+          sed -i "s|__DOCKERFILE__|$(dockerfilePath)|g" $(Build.ArtifactStagingDirectory)/kaniko-pod-final.yaml
+          sed -i "s|__DESTINATION_TAG__|$(harborRepo):$(imageTag)|g" $(Build.ArtifactStagingDirectory)/kaniko-pod-final.yaml
+          sed -i "s|__DESTINATION_LATEST__|$(harborRepo):latest|g" $(Build.ArtifactStagingDirectory)/kaniko-pod-final.yaml
+          
+          echo "Final Kaniko pod manifest created:"
+          cat $(Build.ArtifactStagingDirectory)/kaniko-pod-final.yaml
 
     - task: Kubernetes@1
-      displayName: 'Run Build by Patching Kaniko Pod'
+      displayName: 'Run Kaniko Pod from Manifest'
       inputs:
-        connectionType: 'None'
+        connectionType: 'Kubernetes Service Connection'
+        kubernetesServiceEndpoint: '$(k8sConnection)'
         namespace: '$(namespace)'
-        command: 'patch'
-        # 'patch' komutu, mevcut bir kaynağı güncellemek için kullanılır.
-        arguments: >-
-          pod $(podName) --type='json' 
-          -p='[{"op": "replace", "path": "/spec/containers/0/args", "value": [
-          "--context=dir://$(buildContext)",
-          "--dockerfile=$(dockerfilePath)",
-          "--destination=$(harborRepo):$(imageTag)",
-          "--destination=$(harborRepo):latest"
-          ]}]'
-        
+        command: 'apply'
+        # Önceki adımda oluşturduğumuz nihai dosyayı kullanıyoruz
+        arguments: '-f $(Build.ArtifactStagingDirectory)/kaniko-pod-final.yaml'
+
     - task: Kubernetes@1
       displayName: 'Wait for Kaniko Pod to Complete'
       inputs:
-        connectionType: 'None'
+        connectionType: 'Kubernetes Service Connection'
+        kubernetesServiceEndpoint: '$(k8sConnection)'
         namespace: '$(namespace)'
         command: 'wait'
-        arguments: 'pod/$(podName) --for=condition=Ready --timeout=10m'
-        
+        arguments: 'pod/$(podName) --for=condition=Succeeded --timeout=10m'
+
     - task: Kubernetes@1
       displayName: 'Get Kaniko Pod Logs'
       inputs:
-        connectionType: 'None'
+        connectionType: 'Kubernetes Service Connection'
+        kubernetesServiceEndpoint: '$(k8sConnection)'
         namespace: '$(namespace)'
         command: 'logs'
         arguments: '$(podName)'
@@ -71,7 +75,9 @@ stages:
     - task: Kubernetes@1
       displayName: 'Delete Kaniko Pod'
       inputs:
-        connectionType: 'None'
+        connectionType: 'Kubernetes Service Connection'
+        kubernetesServiceEndpoint: '$(k8sConnection)'
         namespace: '$(namespace)'
         command: 'delete'
-        arguments: 'pod $(podName)'
+        # --ignore-not-found=true, pod zaten --cleanup ile silinmişse hata vermesini önler
+        arguments: 'pod $(podName) --ignore-not-found=true'
