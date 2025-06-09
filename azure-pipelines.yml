@@ -1,22 +1,40 @@
+# azure-pipelines.yml - Kaniko ile Güvenli İmaj Oluşturma Pipeline'ı
+
 trigger:
   branches:
     include:
       - main
   paths:
+    # Sadece user_service klasöründe bir değişiklik olduğunda bu pipeline tetiklenir.
+    # Daha sonra diğer servisler için de benzer trigger'lar ekleyebiliriz.
     include:
       - 'user_service/*'
 
+# Pipeline'ın çalışacağı, RKE2 cluster'ınızdaki özel ajan havuzu.
 pool:
-  # Deployment'taki havuz adıyla eşleşmeli
-  name: 'Default' 
+  name: 'Default' # DİKKAT: Burayı kendi özel ajan havuzunuzun adıyla değiştirin ('RKE2-Agent-Pool' gibi).
 
+# Pipeline genelinde kullanılacak değişkenler
 variables:
-  # Değişkenleri burada merkezi olarak tanımlıyoruz
+  # Değişiklik yapılacak servis adı
   serviceName: 'user-service'
+  
+  # Harbor ve imaj bilgileri
   harborRepo: 'harbor.cloudpro.com.tr/helpdesk/$(serviceName)'
-  imageTag: '$(Build.BuildId)'
-  buildContext: '$(Build.SourcesDirectory)/$(serviceName)'
+  imageTag: '$(Build.BuildId)' # Her build için Azure DevOps'un verdiği benzersiz ID
+
+  # Pipeline'ın çalıştığı ajan içindeki kaynak kod yolları
+  buildContext: '$(Build.SourcesDirectory)'
   dockerfilePath: '$(Build.SourcesDirectory)/$(serviceName)/Dockerfile'
+  
+  # Kaniko pod'unun oluşturulacağı ve secret'ların bulunduğu Kubernetes namespace'i
+  namespace: 'ado-agents'
+  
+  # Harbor kimlik bilgilerini içeren Kubernetes secret'ının adı
+  harborSecretName: 'harbor-credentials'
+
+  # Azure DevOps'ta Kubernetes için oluşturduğumuz Service Connection'ın adı
+  k8sConnection: 'RKE2-Agent-Connection'
 
 stages:
 - stage: BuildWithKaniko
@@ -25,41 +43,19 @@ stages:
   - job: KanikoJob
     displayName: 'Build Image for $(serviceName)'
     steps:
-    # kubectl görevi, cluster'daki ajanı kullandığımız için çalışacaktır.
     - task: Kubernetes@1
-      displayName: 'Build and Push Image using Kaniko Pod'
+      displayName: 'Run Kaniko Pod to Build and Push Image'
       inputs:
         connectionType: 'Kubernetes Service Connection'
-        # Azure DevOps'ta RKE2 cluster'ın için oluşturduğun Service Connection'ın adı
-        kubernetesServiceEndpoint: 'RKE2ClusterConnection' 
-        namespace: 'ado-agents' # Kaniko pod'unun oluşturulacağı namespace
-        command: 'apply'
-        useConfigMapForTriggers: false
-        # Kaniko pod'unu anında oluşturmak için inline YAML kullanıyoruz
-        arguments: |
-          -f - <<EOF
-          apiVersion: v1
-          kind: Pod
-          metadata:
-            name: kaniko-build-pod-$(Build.BuildId)
-          spec:
-            containers:
-            - name: kaniko
-              image: gcr.io/kaniko-project/executor:latest
-              args:
-                - "--context=$(buildContext)"
-                - "--dockerfile=$(dockerfilePath)"
-                - "--destination=$(harborRepo):$(imageTag)"
-                - "--registry-mirror=harbor.cloudpro.com.tr" # Güvenlik duvarı varsa gerekebilir
-              volumeMounts:
-              - name: harbor-credentials-volume
-                mountPath: /kaniko/.docker/
-            restartPolicy: Never
-            volumes:
-            - name: harbor-credentials-volume
-              secret:
-                secretName: harbor-credentials # Adım 2'de oluşturduğumuz secret
-                items:
-                  - key: .dockerconfigjson
-                    path: config.json
-          EOF
+        kubernetesServiceEndpoint: '$(k8sConnection)'
+        namespace: '$(namespace)'
+        # 'apply' yerine, anlık bir pod oluşturmak için 'run' komutunu kullanıyoruz.
+        command: 'run'
+        # 'run' komutunun tüm argümanlarını aşağıda sağlıyoruz.
+        arguments: >-
+          kaniko-build-pod-$(imageTag)
+          --image=gcr.io/kaniko-project/executor:latest
+          --restart=Never
+          --image-pull-policy=IfNotPresent
+          --overrides='{ "spec": { "volumes": [ { "name": "docker-config-volume", "secret": { "secretName": "$(harborSecretName)", "items": [ { "key": ".dockerconfigjson", "path": "config.json" } ] } } ], "containers": [ { "name": "kaniko", "volumeMounts": [ { "name": "docker-config-volume", "mountPath": "/kaniko/.docker/" } ] } ] } }'
+          -- --context=dir://$(buildContext) --dockerfile=$(dockerfilePath) --destination=$(harborRepo):$(imageTag) --destination=$(harborRepo):latest --cleanup
