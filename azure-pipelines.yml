@@ -1,38 +1,65 @@
-# azure-pipelines.yml
 trigger:
   branches:
     include:
       - main
   paths:
     include:
-      - 'user_service/*' # Sadece user_service klasöründe değişiklik olunca tetiklenir
+      - 'user_service/*'
 
 pool:
-  name: 'Default' # RKE2 üzerine kurduğun ajanın pool adı
+  # Deployment'taki havuz adıyla eşleşmeli
+  name: 'Default' 
 
 variables:
-  # Azure DevOps'ta oluşturduğun Harbor Service Connection'ının adı
-  harborConnection: 'HarborServiceConnection' 
-
-  # Harbor'daki proje ve imaj adı
-  imageRepository: 'helpdesk/user-service' 
-
-  # Her build için benzersiz bir etiket
-  imageTag: '$(Build.BuildId)' 
+  # Değişkenleri burada merkezi olarak tanımlıyoruz
+  serviceName: 'user-service'
+  harborRepo: 'harbor.cloudpro.com.tr/helpdesk/$(serviceName)'
+  imageTag: '$(Build.BuildId)'
+  buildContext: '$(Build.SourcesDirectory)/$(serviceName)'
+  dockerfilePath: '$(Build.SourcesDirectory)/$(serviceName)/Dockerfile'
 
 stages:
-- stage: Build
-  displayName: 'Build and Push Service to Harbor'
+- stage: BuildWithKaniko
+  displayName: 'Build and Push with Kaniko'
   jobs:
-  - job: BuildJob
-    displayName: 'Build $(imageRepository)'
+  - job: KanikoJob
+    displayName: 'Build Image for $(serviceName)'
     steps:
-    - task: Docker@2
-      displayName: 'Build and Push Docker Image'
+    # kubectl görevi, cluster'daki ajanı kullandığımız için çalışacaktır.
+    - task: Kubernetes@1
+      displayName: 'Build and Push Image using Kaniko Pod'
       inputs:
-        containerRegistry: $(harborConnection)
-        repository: $(imageRepository)
-        command: 'buildAndPush'
-        Dockerfile: '**/user_service/Dockerfile' # user_service'in Dockerfile'ını bul
-        tags: |
-          $(imageTag)
+        connectionType: 'Kubernetes Service Connection'
+        # Azure DevOps'ta RKE2 cluster'ın için oluşturduğun Service Connection'ın adı
+        kubernetesServiceEndpoint: 'RKE2ClusterConnection' 
+        namespace: 'ado-agents' # Kaniko pod'unun oluşturulacağı namespace
+        command: 'apply'
+        useConfigMapForTriggers: false
+        # Kaniko pod'unu anında oluşturmak için inline YAML kullanıyoruz
+        arguments: |
+          -f - <<EOF
+          apiVersion: v1
+          kind: Pod
+          metadata:
+            name: kaniko-build-pod-$(Build.BuildId)
+          spec:
+            containers:
+            - name: kaniko
+              image: gcr.io/kaniko-project/executor:latest
+              args:
+                - "--context=$(buildContext)"
+                - "--dockerfile=$(dockerfilePath)"
+                - "--destination=$(harborRepo):$(imageTag)"
+                - "--registry-mirror=harbor.cloudpro.com.tr" # Güvenlik duvarı varsa gerekebilir
+              volumeMounts:
+              - name: harbor-credentials-volume
+                mountPath: /kaniko/.docker/
+            restartPolicy: Never
+            volumes:
+            - name: harbor-credentials-volume
+              secret:
+                secretName: harbor-credentials # Adım 2'de oluşturduğumuz secret
+                items:
+                  - key: .dockerconfigjson
+                    path: config.json
+          EOF
