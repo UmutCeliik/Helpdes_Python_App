@@ -1,13 +1,15 @@
+# kaniko-pod-template.yaml
 apiVersion: v1
 kind: Pod
 metadata:
-  name: __POD_NAME__ # Bu, pipeline'da değiştirilecek
+  # Pod'un adı pipeline tarafından bu alana yazılacak
+  name: __POD_NAME__
 spec:
   containers:
   - name: kaniko
     image: gcr.io/kaniko-project/executor:latest
+    # Tüm Kaniko argümanları pipeline tarafından bu listeye eklenecek
     args:
-      # Bu argüman listesi pipeline'da doldurulacak
       - "--context=__CONTEXT__"
       - "--dockerfile=__DOCKERFILE__"
       - "--destination=__DESTINATION_TAG__"
@@ -20,7 +22,8 @@ spec:
   volumes:
   - name: harbor-credentials-volume
     secret:
-      secretName: harbor-credentials
+      # Harbor kimlik bilgilerini içeren secret'ın adı
+      secretName: harbor-credentials 
       items:
         - key: .dockerconfigjson
           path: config.json
