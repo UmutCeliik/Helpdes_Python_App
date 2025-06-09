@@ -10,14 +10,14 @@ pool:
   name: 'Default'
 
 variables:
-  # Değişkenleri aynı şekilde tutuyoruz
   serviceName: 'user-service'
   harborRepo: 'harbor.cloudpro.com.tr/helpdesk/$(serviceName)'
   imageTag: '$(Build.BuildId)'
   buildContext: '$(Build.SourcesDirectory)'
   dockerfilePath: '$(Build.SourcesDirectory)/$(serviceName)/Dockerfile'
   namespace: 'ado-agents'
-  harborSecretName: 'harbor-credentials'
+  # Yeni eklenen değişken: Her build için benzersiz pod adı
+  podName: 'kaniko-build-pod-$(imageTag)'
 
 stages:
 - stage: BuildWithKaniko
@@ -27,20 +27,51 @@ stages:
     displayName: 'Build Image for $(serviceName)'
     steps:
     - task: Kubernetes@1
-      displayName: 'Run Kaniko Pod to Build and Push Image'
+      displayName: 'Create Kaniko Pod from file'
       inputs:
-        # --- EN ÖNEMLİ DEĞİŞİKLİK ---
-        # Artık harici bir bağlantı belirtmiyoruz.
-        # Bu görev, ajanın içindeki Service Account'u otomatik olarak algılayacak.
-        connectionType: 'None' 
-        # kubernetesServiceEndpoint: ... satırını tamamen siliyoruz.
-        # --- DEĞİŞİKLİK SONU ---
+        # Service Connection'a artık gerek yok, ajan kendi kimliğini kullanıyor.
+        connectionType: 'None'
         namespace: '$(namespace)'
-        command: 'run'
+        command: 'apply'
+        # Pod şablon dosyamızı kullanıyoruz
+        arguments: '-f $(Build.SourcesDirectory)/kaniko-pod.yaml'
+
+    - task: Kubernetes@1
+      displayName: 'Run Build by Patching Kaniko Pod'
+      inputs:
+        connectionType: 'None'
+        namespace: '$(namespace)'
+        command: 'patch'
+        # 'patch' komutu, mevcut bir kaynağı güncellemek için kullanılır.
         arguments: >-
-          kaniko-build-pod-$(imageTag)
-          --image=gcr.io/kaniko-project/executor:latest
-          --restart=Never
-          --image-pull-policy=IfNotPresent
-          --overrides='{ "spec": { "volumes": [ { "name": "docker-config-volume", "secret": { "secretName": "$(harborSecretName)", "items": [ { "key": ".dockerconfigjson", "path": "config.json" } ] } } ], "containers": [ { "name": "kaniko", "volumeMounts": [ { "name": "docker-config-volume", "mountPath": "/kaniko/.docker/" } ] } ] } }'
-          -- --context=dir://$(buildContext) --dockerfile=$(dockerfilePath) --destination=$(harborRepo):$(imageTag) --destination=$(harborRepo):latest --cleanup
+          pod $(podName) --type='json' 
+          -p='[{"op": "replace", "path": "/spec/containers/0/args", "value": [
+          "--context=dir://$(buildContext)",
+          "--dockerfile=$(dockerfilePath)",
+          "--destination=$(harborRepo):$(imageTag)",
+          "--destination=$(harborRepo):latest"
+          ]}]'
+        
+    - task: Kubernetes@1
+      displayName: 'Wait for Kaniko Pod to Complete'
+      inputs:
+        connectionType: 'None'
+        namespace: '$(namespace)'
+        command: 'wait'
+        arguments: 'pod/$(podName) --for=condition=Ready --timeout=10m'
+        
+    - task: Kubernetes@1
+      displayName: 'Get Kaniko Pod Logs'
+      inputs:
+        connectionType: 'None'
+        namespace: '$(namespace)'
+        command: 'logs'
+        arguments: '$(podName)'
+
+    - task: Kubernetes@1
+      displayName: 'Delete Kaniko Pod'
+      inputs:
+        connectionType: 'None'
+        namespace: '$(namespace)'
+        command: 'delete'
+        arguments: 'pod $(podName)'
