@@ -1,40 +1,23 @@
-# azure-pipelines.yml - Kaniko ile Güvenli İmaj Oluşturma Pipeline'ı
-
 trigger:
   branches:
     include:
       - main
   paths:
-    # Sadece user_service klasöründe bir değişiklik olduğunda bu pipeline tetiklenir.
-    # Daha sonra diğer servisler için de benzer trigger'lar ekleyebiliriz.
     include:
       - 'user_service/*'
 
-# Pipeline'ın çalışacağı, RKE2 cluster'ınızdaki özel ajan havuzu.
 pool:
-  name: 'Default' # DİKKAT: Burayı kendi özel ajan havuzunuzun adıyla değiştirin ('RKE2-Agent-Pool' gibi).
+  name: 'Default'
 
-# Pipeline genelinde kullanılacak değişkenler
 variables:
-  # Değişiklik yapılacak servis adı
+  # Değişkenleri aynı şekilde tutuyoruz
   serviceName: 'user-service'
-  
-  # Harbor ve imaj bilgileri
   harborRepo: 'harbor.cloudpro.com.tr/helpdesk/$(serviceName)'
-  imageTag: '$(Build.BuildId)' # Her build için Azure DevOps'un verdiği benzersiz ID
-
-  # Pipeline'ın çalıştığı ajan içindeki kaynak kod yolları
+  imageTag: '$(Build.BuildId)'
   buildContext: '$(Build.SourcesDirectory)'
   dockerfilePath: '$(Build.SourcesDirectory)/$(serviceName)/Dockerfile'
-  
-  # Kaniko pod'unun oluşturulacağı ve secret'ların bulunduğu Kubernetes namespace'i
   namespace: 'ado-agents'
-  
-  # Harbor kimlik bilgilerini içeren Kubernetes secret'ının adı
   harborSecretName: 'harbor-credentials'
-
-  # Azure DevOps'ta Kubernetes için oluşturduğumuz Service Connection'ın adı
-  k8sConnection: 'RKE2ClusterConnection'
 
 stages:
 - stage: BuildWithKaniko
@@ -46,12 +29,14 @@ stages:
     - task: Kubernetes@1
       displayName: 'Run Kaniko Pod to Build and Push Image'
       inputs:
-        connectionType: 'Kubernetes Service Connection'
-        kubernetesServiceEndpoint: '$(k8sConnection)'
+        # --- EN ÖNEMLİ DEĞİŞİKLİK ---
+        # Artık harici bir bağlantı belirtmiyoruz.
+        # Bu görev, ajanın içindeki Service Account'u otomatik olarak algılayacak.
+        connectionType: 'None' 
+        # kubernetesServiceEndpoint: ... satırını tamamen siliyoruz.
+        # --- DEĞİŞİKLİK SONU ---
         namespace: '$(namespace)'
-        # 'apply' yerine, anlık bir pod oluşturmak için 'run' komutunu kullanıyoruz.
         command: 'run'
-        # 'run' komutunun tüm argümanlarını aşağıda sağlıyoruz.
         arguments: >-
           kaniko-build-pod-$(imageTag)
           --image=gcr.io/kaniko-project/executor:latest
