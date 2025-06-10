@@ -1,0 +1,5 @@
+# Tüm metin dosyaları için varsayılan davranışı ayarla (otomatik algıla)
+* text=auto
+
+# Shell script'lerinin (.sh) her zaman LF ile kaydedilmesini zorunlu kıl
+*.sh text eol=lf
