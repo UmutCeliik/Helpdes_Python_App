@@ -1,13 +1,13 @@
 # templates/build-service-job.yml
-# PodInitializing hatasını çözen son sürüm.
+# YENİ EKLENEN GÜVENLİK ADIMLARI (SCA) İLE GÜNCELLENMİŞ HALİ
 
 parameters:
-- name: serviceName
+- name: serviceName  # Build edilecek servisin adı (örn: 'user_service')
   type: string
-- name: dependsOn
+- name: dependsOn    # Bu işin bağımlı olduğu önceki iş(ler)
   type: object
   default: []
-- name: condition
+- name: condition    # Bu işin çalışması için gereken koşul
   type: string
   default: succeeded()
 
@@ -18,12 +18,54 @@ jobs:
   condition: ${{ parameters.condition }}
   
   variables:
+    # Parametrelerden gelen servis adını, iş içinde kullanılacak bir değişkene atıyoruz.
     serviceName: ${{ parameters.serviceName }} 
   
   steps:
+  # ===================================================================
+  # YENİ EKLENEN ADIM: Bağımlılık Kurulumu ve SCA Taraması
+  # Bu adım, zafiyetli bir kütüphane kullanıyorsak pipeline'ı en başından durdurur.
+  # ===================================================================
+  - task: Bash@3
+    displayName: 'Install Dependencies & Run SCA Scan for ${{ parameters.serviceName }}'
+    inputs:
+      targetType: 'inline'
+      script: |
+        # Checkout edilen kodun içinde ilgili servis klasörüne gidiyoruz.
+        # 's' klasörü, Azure Pipelines'ın checkout işlemini yaptığı varsayılan alt klasördür.
+        cd $(Pipeline.Workspace)/s/${{ parameters.serviceName }}
+        
+        echo "Service directory: $(pwd)"
+        echo "Installing dependencies and running SCA scan..."
+        
+        # Servis adına göre farklı tarama komutları çalıştırıyoruz.
+        if [[ "${{ parameters.serviceName }}" == "frontend" ]]; then
+          # Node.js/Frontend için
+          echo "Installing npm dependencies..."
+          # 'npm ci' package-lock.json'a göre temiz kurulum yapar, CI için daha güvenilirdir.
+          npm ci
+          echo "Scanning for vulnerabilities with npm audit..."
+          # Yüksek veya kritik seviyede bir açık bulursa pipeline'ı başarısız yapar.
+          npm audit --audit-level=high
+        else
+          # Python servisleri için (user_service, ticket_service, auth_service)
+          echo "Installing pip dependencies..."
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          
+          echo "Scanning for vulnerabilities with pip-audit..."
+          pip install pip-audit
+          # Yüksek veya kritik seviyede bir açık bulursa pipeline'ı başarısız yapar.
+          pip-audit -r requirements.txt --fail-on HIGH
+        fi
+        echo "SCA Scan completed successfully."
+
+  # ===================================================================
+  # Mevcut adımlarımız (Kaniko pod oluşturma) buradan itibaren devam ediyor
+  # ===================================================================
   - task: Bash@3
     name: PrepareManifest
-    displayName: '1. Prepare Kaniko Pod Manifest for ${{ parameters.serviceName }}'
+    displayName: 'Prepare Kaniko Pod Manifest for ${{ parameters.serviceName }}'
     env:
       AZP_TOKEN: $(System.AccessToken)
     inputs:
@@ -44,25 +86,23 @@ jobs:
         cat "$finalManifestFile" | sed "s/$AZP_TOKEN/********/g"
 
   - task: Kubernetes@1
-    displayName: '2. Apply Kaniko Pod for ${{ parameters.serviceName }}'
+    displayName: 'Apply Kaniko Pod for ${{ parameters.serviceName }}'
     inputs:
       connectionType: 'None'
       namespace: '$(k8sNamespace)'
       command: 'apply'
       arguments: '-f $(kanikoFinalFile)-${{ parameters.serviceName }}'
       
-  # YENİ ADIM: Önce initContainer'ın loglarını takip ederek bitmesini bekliyoruz.
   - task: Kubernetes@1
-    displayName: '3a. Wait for Init Container (git-checkout) to Complete'
+    displayName: 'Wait for Init Container (git-checkout) to Complete'
     inputs:
       connectionType: 'None'
       namespace: '$(k8sNamespace)'
       command: 'logs'
-      # '--container' (veya -c) bayrağı ile hangi konteynerin logunu istediğimizi belirtiyoruz.
       arguments: 'pod/$(safePodName) --follow --container=git-checkout'
 
   - task: Kubernetes@1
-    displayName: '3b. Follow Logs for Main Container (kaniko)'
+    displayName: 'Follow Logs for Main Container (kaniko)'
     inputs:
       connectionType: 'None'
       namespace: '$(k8sNamespace)'
@@ -70,7 +110,7 @@ jobs:
       arguments: 'pod/$(safePodName) --follow --container=kaniko'
       
   - task: Kubernetes@1
-    displayName: '4. Cleanup Pod for ${{ parameters.serviceName }}'
+    displayName: 'Cleanup Pod for ${{ parameters.serviceName }}'
     condition: always()
     inputs:
       connectionType: 'None'
