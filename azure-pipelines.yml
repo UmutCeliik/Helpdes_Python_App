@@ -1,4 +1,4 @@
-# azure-pipelines.yml - Aşama 1 (Sözdizimi Düzeltilmiş Hali)
+# azure-pipelines.yml - Paylaşımlı Alan Modeli ile Nihai Çözüm
 
 trigger:
   branches:
@@ -15,6 +15,13 @@ variables:
   serviceName: 'user_service'
   harborRepo: 'harbor.cloudpro.com.tr/helpdesk/$(serviceName)'
   imageTag: '$(Build.BuildId)'
+  k8sNamespace: 'ado-agents'
+  
+  # Git repo URL'sini 'git://' ön eki olmadan, saf haliyle tanımlıyoruz.
+  gitRepoUrl: 'https://dev.azure.com/umutcelik0234/HelpDesk_App/_git/helpdesk-app-src'
+  
+  kanikoTemplateFile: 'kaniko-pod-template.yaml'
+  kanikoFinalFile: '$(Build.ArtifactStagingDirectory)/kaniko-pod-final.yaml'
 
 stages:
 - stage: Build
@@ -22,24 +29,68 @@ stages:
   jobs:
   - job: BuildImage
     displayName: 'Build $(serviceName) Image'
-    
-    container:
-      image: gcr.io/kaniko-project/executor:latest
-      endpoint: HarborServiceConnection 
-
     steps:
-    - checkout: self
-
+    # Bu adım artık GEREKLİ DEĞİL, çünkü kod pod içinde klonlanacak.
+    # - checkout: self 
+    
     - task: Bash@3
-      displayName: 'Build and Push with Kaniko'
-      # DÜZELTME: 'script' ve 'targetType' parametreleri 
-      # aşağıda görüldüğü gibi bir 'inputs' bloğu içinde olmalıdır.
+      displayName: '1. Prepare Kaniko Pod Manifest'
+      # System.AccessToken, Azure DevOps'un o anki iş için ürettiği
+      # geçici ve güvenli bir token'dır. Repoya erişim yetkisi vardır.
+      # Bu token'ı pod'a bir ortam değişkeni olarak aktaracağız.
+      env:
+        AZP_TOKEN: $(System.AccessToken)
       inputs:
         targetType: 'inline'
         script: |
-          echo "---Starting Kaniko Executor---"
-          /kaniko/executor \
-            --context=$(Pipeline.Workspace)/s \
-            --context-sub-path=$(serviceName) \
-            --dockerfile=$(Pipeline.Workspace)/s/$(serviceName)/Dockerfile \
-            --destination=$(harborRepo):$(imageTag)
+          echo "Preparing manifest for build $(imageTag)..."
+          cp "$(kanikoTemplateFile)" "$(kanikoFinalFile)"
+          
+          # Pod manifestindeki yer tutucuları değişkenlerle dolduruyoruz.
+          sed -i "s|__POD_NAME__|kaniko-build-$(imageTag)|g" "$(kanikoFinalFile)"
+          sed -i "s|__CONTEXT__|$(gitRepoUrl)|g" "$(kanikoFinalFile)"
+          sed -i "s|__CONTEXT_SUB_PATH__|$(serviceName)|g" "$(kanikoFinalFile)"
+          sed -i "s|__DESTINATION_TAG__|$(harborRepo):$(imageTag)|g" "$(kanikoFinalFile)"
+
+          # AZP_TOKEN'ı template'e güvenli bir şekilde enjekte ediyoruz.
+          sed -i "s|__AZP_TOKEN__|$(AZP_TOKEN)|g" "$(kanikoFinalFile)"
+          
+          echo "--- Final Kaniko Pod Manifest (token gizlenmiş) ---"
+          # Güvenlik için token'ı loglarda göstermiyoruz.
+          cat "$(kanikoFinalFile)" | sed "s/$(AZP_TOKEN)/********/g"
+
+    - task: Kubernetes@1
+      displayName: '2. Apply Kaniko Pod to Cluster'
+      inputs:
+        connectionType: 'None'
+        namespace: '$(k8sNamespace)'
+        command: 'apply'
+        arguments: '-f $(kanikoFinalFile)'
+        
+    - task: Kubernetes@1
+      displayName: '3. Wait for Kaniko Pod to Complete'
+      inputs:
+        connectionType: 'None'
+        namespace: '$(k8sNamespace)'
+        command: 'wait'
+        arguments: 'pod/kaniko-build-$(imageTag) --for=condition=Succeeded --timeout=15m' # Timeout'u biraz artırdım.
+
+    # ... Log alma ve silme adımları aynı kalır ...
+    - task: Kubernetes@1
+      displayName: '4. Get Kaniko Pod Logs (for debugging)'
+      condition: always()
+      inputs:
+        connectionType: 'None'
+        namespace: '$(k8sNamespace)'
+        command: 'logs'
+        arguments: 'pod/kaniko-build-$(imageTag)'
+        failOnStdErr: false
+
+    - task: Kubernetes@1
+      displayName: '5. Cleanup: Delete Kaniko Pod'
+      condition: always()
+      inputs:
+        connectionType: 'None'
+        namespace: '$(k8sNamespace)'
+        command: 'delete'
+        arguments: 'pod/kaniko-build-$(imageTag) --ignore-not-found=true'
