@@ -1,4 +1,4 @@
-# azure-pipelines.yml - Aşama 1: Düzeltilmiş Hali
+# azure-pipelines.yml - Aşama 1 (YENİ VE DOĞRU YÖNTEM)
 
 trigger:
   branches:
@@ -15,77 +15,33 @@ variables:
   serviceName: 'user_service'
   harborRepo: 'harbor.cloudpro.com.tr/helpdesk/$(serviceName)'
   imageTag: '$(Build.BuildId)'
-  k8sNamespace: 'ado-agents'
-  
-  # --- KANIKO KONFİGÜRASYONU (ÇÖZÜM BURADA) ---
-  # DÜZELTME: Kaniko'ya bunun bir Git reposu olduğunu ve klonlaması gerektiğini
-  # belirtmek için 'git://' ön ekini kullanıyoruz. Kaniko bu ön eki gördüğünde
-  # HTTPS üzerinden tar indirmesi yapmak yerine 'git clone' komutunu çalıştırır.
-  # Kimlik doğrulaması için ise önceden oluşturduğumuz 'git-repo-secret' kullanılır.
-  kanikoContext: 'git://https://dev.azure.com/umutcelik0234/HelpDesk_App/_git/helpdesk-app-src'
-  kanikoContextSubPath: '$(serviceName)'
-  kanikoDockerfile: 'Dockerfile'
-  
-  kanikoTemplateFile: 'kaniko-pod-template.yaml'
-  kanikoFinalFile: '$(Build.ArtifactStagingDirectory)/kaniko-pod-final.yaml'
 
 stages:
 - stage: Build
   displayName: 'Build and Push Service Image'
   jobs:
   - job: BuildImage
-    displayName: 'Build $(serviceName) with Kaniko'
+    displayName: 'Build $(serviceName) Image'
+    
+    # İŞİN KONTEYNER İÇİNDE ÇALIŞMASINI SAĞLIYAN BLOK
+    container:
+      image: gcr.io/kaniko-project/executor:latest
+      # Harbor'a erişim için oluşturduğumuz Servis Bağlantısını bağlıyoruz.
+      # Bu, Kaniko konteyneri içinde /kaniko/.docker/config.json dosyasını otomatik oluşturur.
+      endpoint: HarborConnection 
+
     steps:
+    # 1. Adım: Kaynak kod, 'container' bloğu sayesinde zaten bu konteynerin içine
+    #          otomatik olarak checkout edilir. Ek bir işlem gerekmez.
+    - checkout: self
+
+    # 2. Adım: Doğrudan Kaniko executor komutunu çalıştırıyoruz.
     - task: Bash@3
-      displayName: '1. Prepare Kaniko Pod Manifest'
-      inputs:
-        targetType: 'inline'
-        script: |
-          echo "Preparing manifest for $(serviceName)..."
-          cp "$(kanikoTemplateFile)" "$(kanikoFinalFile)"
-          
-          sed -i "s|__POD_NAME__|kaniko-build-$(imageTag)|g" "$(kanikoFinalFile)"
-          sed -i "s|__CONTEXT__|$(kanikoContext)|g" "$(kanikoFinalFile)"
-          sed -i "s|__CONTEXT_SUB_PATH__|$(kanikoContextSubPath)|g" "$(kanikoFinalFile)"
-          sed -i "s|__DOCKERFILE__|$(kanikoDockerfile)|g" "$(kanikoFinalFile)"
-          sed -i "s|__DESTINATION_TAG__|$(harborRepo):$(imageTag)|g" "$(kanikoFinalFile)"
-          sed -i "/__DESTINATION_LATEST__/d" "$(kanikoFinalFile)"
-          
-          echo "--- Final Kaniko Pod Manifest ---"
-          cat "$(kanikoFinalFile)"
-
-    # Diğer adımlar (apply, wait, logs, delete) aynı kalır.
-    - task: Kubernetes@1
-      displayName: '2. Apply Kaniko Pod to Cluster'
-      inputs:
-        connectionType: 'None'
-        namespace: '$(k8sNamespace)'
-        command: 'apply'
-        arguments: '-f $(kanikoFinalFile)'
-        
-    - task: Kubernetes@1
-      displayName: '3. Wait for Kaniko Pod to Complete'
-      inputs:
-        connectionType: 'None'
-        namespace: '$(k8sNamespace)'
-        command: 'wait'
-        arguments: 'pod/kaniko-build-$(imageTag) --for=condition=Succeeded --timeout=10m'
-
-    - task: Kubernetes@1
-      displayName: '4. Get Kaniko Pod Logs (for debugging)'
-      condition: always()
-      inputs:
-        connectionType: 'None'
-        namespace: '$(k8sNamespace)'
-        command: 'logs'
-        arguments: 'pod/kaniko-build-$(imageTag)'
-        failOnStdErr: false
-
-    - task: Kubernetes@1
-      displayName: '5. Cleanup: Delete Kaniko Pod'
-      condition: always()
-      inputs:
-        connectionType: 'None'
-        namespace: '$(k8sNamespace)'
-        command: 'delete'
-        arguments: 'pod/kaniko-build-$(imageTag) --ignore-not-found=true'
+      displayName: 'Build and Push with Kaniko'
+      script: |
+        # /kaniko/executor komutu, container'ın PATH'inde olduğu için doğrudan çağrılabilir.
+        /kaniko/executor \
+          --context=$(Pipeline.Workspace)/s \
+          --context-sub-path=$(serviceName) \
+          --dockerfile=$(Pipeline.Workspace)/s/$(serviceName)/Dockerfile \
+          --destination=$(harborRepo):$(imageTag)
