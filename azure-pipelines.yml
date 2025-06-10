@@ -16,7 +16,7 @@ variables:
   harborRepo: 'harbor.cloudpro.com.tr/helpdesk/$(serviceName)'
   imageTag: '$(Build.BuildId)'
   buildContext: 'dir://$(Build.SourcesDirectory)'
-  dockerfilePath: '$(Build.SourcesDirectory)/$(serviceName)/Dockerfile'
+  dockerfilePath: '$(serviceName)/Dockerfile' # Sadece göreli yolu belirtiyoruz
   namespace: 'ado-agents'
   podName: 'kaniko-build-pod-$(imageTag)'
   kanikoTemplateFile: '$(Build.SourcesDirectory)/kaniko-pod-template.yaml'
