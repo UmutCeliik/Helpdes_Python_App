@@ -1,14 +1,13 @@
 # templates/build-service-job.yml
-# Her adımın kendi ideal konteynerinde çalıştığı, son ve kararlı sürüm.
+# 'resources' bloğu kaldırılmış, daha basit ve doğru hali.
 
-# Şablonun dışarıdan alacağı parametreler.
 parameters:
-- name: serviceName  # Build edilecek servisin adı (örn: 'user_service')
+- name: serviceName
   type: string
-- name: dependsOn    # Bu işin bağımlı olduğu önceki iş(ler)
+- name: dependsOn
   type: object
   default: []
-- name: condition    # Bu işin çalışması için gereken koşul
+- name: condition
   type: string
   default: succeeded()
 
@@ -18,39 +17,21 @@ jobs:
   dependsOn: ${{ parameters.dependsOn }}
   condition: ${{ parameters.condition }}
   
-  # YENİ BÖLÜM: Bu iş için kullanılacak konteyner kaynaklarını (sidecar'lar) tanımlıyoruz.
-  # Pipeline ajanı, adımları bu konteynerlerin içinde çalıştıracak.
-  resources:
-    containers:
-    # Python taramaları için kullanılacak, içinde Python ve pip'in hazır olduğu konteyner.
-    - container: python_scanner
-      image: python:3.11-slim
-    # Node.js taramaları için kullanılacak, içinde Node.js ve npm'in hazır olduğu konteyner.
-    - container: node_scanner
-      image: node:20-alpine
-  
   variables:
-    # Parametreden gelen değeri, bu işin (job) çalışma zamanı değişkenine atıyoruz.
-    serviceName: ${{ parameters.serviceName }} 
+    serviceName: ${{ parameters.serviceName }}
   
   steps:
-  # Kaynak kod, iş başladığında varsayılan olarak ana ajan ortamına checkout edilir.
-  # Diğer konteynerler bu çalışma alanına erişebilir.
   - checkout: self
 
   # Python servisleri için SCA Tarama adımı
   - task: Bash@3
     displayName: 'Install & Scan Python Dependencies'
-    # Bu adım, sadece build edilen servis 'frontend' DEĞİLSE çalışır.
     condition: and(succeeded(), ne(variables.serviceName, 'frontend'))
-    # Bu adımı 'python_scanner' konteynerinin içinde çalıştır.
-    target: python_scanner 
+    target: python_scanner
     inputs:
       targetType: 'inline'
       script: |
         set -e
-        # Azure DevOps, kaynak kodu bu konteynere otomatik olarak /__w/{jobId}/s gibi bir yola mount eder.
-        # Bu, $(Pipeline.Workspace)/s'e denk gelir.
         cd $(Pipeline.Workspace)/s/${{ parameters.serviceName }}
         echo "Running Python SCA in $(pwd) inside a Python container..."
         python -m pip install --upgrade pip
@@ -62,10 +43,8 @@ jobs:
   # Frontend servisi için SCA Tarama adımı
   - task: Bash@3
     displayName: 'Install & Scan Node.js Dependencies'
-    # Bu adım, sadece build edilen servis 'frontend' İSE çalışır.
     condition: and(succeeded(), eq(variables.serviceName, 'frontend'))
-    # Bu adımı 'node_scanner' konteynerinin içinde çalıştır.
-    target: node_scanner 
+    target: node_scanner
     inputs:
       targetType: 'inline'
       script: |
@@ -77,9 +56,7 @@ jobs:
         npm audit --audit-level=high || (echo "npm audit found vulnerabilities" && exit 1)
         echo "Node.js SCA Scan completed successfully."
 
-  # --- KANIKO ADIMLARI (DEĞİŞİKLİK YOK) ---
-  # Bu adımlar, bir 'target' belirtilmediği için varsayılan ajan ortamında çalışır
-  # ve kendi pod'larını Kubernetes üzerinde oluştururlar.
+  # --- KANIKO ADIMLARI ---
   - task: Bash@3
     name: PrepareManifest
     displayName: 'Prepare Kaniko Pod Manifest for ${{ parameters.serviceName }}'
