@@ -25,7 +25,7 @@ stages:
     
     container:
       image: gcr.io/kaniko-project/executor:latest
-      endpoint: HarborConnection 
+      endpoint: HarborServiceConnection 
 
     steps:
     - checkout: self
