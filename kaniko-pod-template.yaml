@@ -1,13 +1,10 @@
-# kaniko-pod-template.yaml - hostAliases ile DNS Çözümü
+# kaniko-pod-template.yaml - TLS Doğrulamasını Atlama
 
 apiVersion: v1
 kind: Pod
 metadata:
   name: __POD_NAME__
 spec:
-  # YENİ EKLENEN BÖLÜM:
-  # Bu blok, pod'un kendi /etc/hosts dosyasına statik kayıtlar ekler.
-  # Bu sayede pod, cluster DNS'ine gitmeden bu host adlarını doğrudan IP'ye çözebilir.
   hostAliases:
   - ip: "10.77.3.203"
     hostnames:
@@ -56,6 +53,9 @@ spec:
       - "--dockerfile=/workspace/source/__CONTEXT_SUB_PATH__/Dockerfile"
       - "--destination=__DESTINATION_TAG__"
       - "--cleanup"
+      # YENİ EKLENEN SATIR:
+      # Bu bayrak, Kaniko'nun Harbor'a bağlanırken SSL sertifikasını doğrulamamasını sağlar.
+      - "--skip-tls-verify"
     
     volumeMounts:
     - name: workspace
