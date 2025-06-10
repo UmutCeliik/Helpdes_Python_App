@@ -1,4 +1,4 @@
-# azure-pipelines.yml - Aşama 1 (YENİ VE DOĞRU YÖNTEM)
+# azure-pipelines.yml - Aşama 1 (Sözdizimi Düzeltilmiş Hali)
 
 trigger:
   branches:
@@ -23,25 +23,23 @@ stages:
   - job: BuildImage
     displayName: 'Build $(serviceName) Image'
     
-    # İŞİN KONTEYNER İÇİNDE ÇALIŞMASINI SAĞLIYAN BLOK
     container:
       image: gcr.io/kaniko-project/executor:latest
-      # Harbor'a erişim için oluşturduğumuz Servis Bağlantısını bağlıyoruz.
-      # Bu, Kaniko konteyneri içinde /kaniko/.docker/config.json dosyasını otomatik oluşturur.
-      endpoint: HarborServiceConnection 
+      endpoint: HarborConnection 
 
     steps:
-    # 1. Adım: Kaynak kod, 'container' bloğu sayesinde zaten bu konteynerin içine
-    #          otomatik olarak checkout edilir. Ek bir işlem gerekmez.
     - checkout: self
 
-    # 2. Adım: Doğrudan Kaniko executor komutunu çalıştırıyoruz.
     - task: Bash@3
       displayName: 'Build and Push with Kaniko'
-      script: |
-        # /kaniko/executor komutu, container'ın PATH'inde olduğu için doğrudan çağrılabilir.
-        /kaniko/executor \
-          --context=$(Pipeline.Workspace)/s \
-          --context-sub-path=$(serviceName) \
-          --dockerfile=$(Pipeline.Workspace)/s/$(serviceName)/Dockerfile \
-          --destination=$(harborRepo):$(imageTag)
+      # DÜZELTME: 'script' ve 'targetType' parametreleri 
+      # aşağıda görüldüğü gibi bir 'inputs' bloğu içinde olmalıdır.
+      inputs:
+        targetType: 'inline'
+        script: |
+          echo "---Starting Kaniko Executor---"
+          /kaniko/executor \
+            --context=$(Pipeline.Workspace)/s \
+            --context-sub-path=$(serviceName) \
+            --dockerfile=$(Pipeline.Workspace)/s/$(serviceName)/Dockerfile \
+            --destination=$(harborRepo):$(imageTag)
