@@ -1,16 +1,15 @@
-# kaniko-pod-template.yaml
 apiVersion: v1
 kind: Pod
 metadata:
-  # Pod'un adı pipeline tarafından bu alana yazılacak
   name: __POD_NAME__
 spec:
   containers:
   - name: kaniko
     image: gcr.io/kaniko-project/executor:latest
-    # Tüm Kaniko argümanları pipeline tarafından bu listeye eklenecek
     args:
+      # Argümanlar pipeline tarafından dinamik olarak doldurulacak
       - "--context=__CONTEXT__"
+      - "--context-sub-path=__CONTEXT_SUB_PATH__"
       - "--dockerfile=__DOCKERFILE__"
       - "--destination=__DESTINATION_TAG__"
       - "--destination=__DESTINATION_LATEST__"
@@ -18,12 +17,21 @@ spec:
     volumeMounts:
     - name: harbor-credentials-volume
       mountPath: /kaniko/.docker/
+    # Yeni eklenen Git secret'ını pod'a bağlıyoruz
+    - name: git-secret-volume
+      mountPath: /root/
   restartPolicy: Never
   volumes:
   - name: harbor-credentials-volume
     secret:
-      # Harbor kimlik bilgilerini içeren secret'ın adı
-      secretName: harbor-credentials 
+      secretName: harbor-credentials
       items:
         - key: .dockerconfigjson
           path: config.json
+  # Yeni eklenen Git secret'ını volume olarak tanımlıyoruz
+  - name: git-secret-volume
+    secret:
+      secretName: git-repo-secret
+      items:
+        - key: .git-credentials
+          path: .git-credentials
