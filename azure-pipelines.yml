@@ -1,86 +1,97 @@
-# azure-pipelines.yml - Final Sürüm
+# azure-pipelines.yml - Aşama 1: Temel CI Akışı
+
 trigger:
   branches:
     include:
       - main
   paths:
     include:
-      - 'user_service/*'
+      - 'user_service/*' # Sadece user-service dizinindeki değişikliklerde tetiklenir.
 
 pool:
-  name: 'Default'
+  name: 'Default' # Lütfen kendi Azure DevOps agent pool adınızla değiştirin.
 
 variables:
-  serviceName: 'user-service'
+  # --- Genel Değişkenler ---
+  serviceName: 'user_service'
   harborRepo: 'harbor.cloudpro.com.tr/helpdesk/$(serviceName)'
-  imageTag: '$(Build.BuildId)'
-  namespace: 'ado-agents'
-  podName: 'kaniko-build-pod-$(imageTag)'
-  k8sConnection: 'RKE2-Kubeconfig-Connection'
+  imageTag: '$(Build.BuildId)' # Şimdilik basitçe Build ID'yi kullanıyoruz.
+  k8sNamespace: 'ado-agents' # Kaniko pod'unun çalışacağı namespace.
   
-  # --- YENİ VE GÜNCEL KANIKO DEĞİŞKENLERİ ---
-  # Kaniko'ya kaynak kodu hangi repodan çekeceğini söylüyoruz
-  kanikoContext: 'git://https://dev.azure.com/umutcelik0234/HelpDesk_App/_git/helpdesk-app-src'
-  # Reponun içinde hangi alt klasörde çalışacağını belirtiyoruz
-  kanikoContextSubPath: '$(serviceName)'
-  # Dockerfile yolu artık context-sub-path'e göreli
-  kanikoDockerfile: 'Dockerfile'
+  # --- Kaniko Konfigürasyon Değişkenleri ---
+  # DÜZELTME: 'git://' ön eki kaldırıldı ve private repo URL'si kullanıldı.
+  kanikoContext: 'https://dev.azure.com/umutcelik0234/HelpDesk_App/_git/helpdesk-app-src'
+  kanikoContextSubPath: '$(serviceName)' # Monorepo içinde hangi alt klasörde çalışılacak.
+  kanikoDockerfile: 'Dockerfile' # Context sub-path'e göreli Dockerfile yolu.
   
-  kanikoTemplateFile: '$(Build.SourcesDirectory)/kaniko-pod-template.yaml'
-  kanikoFinalFile: '$(Build.ArtifactStagingDirectory)/kaniko-pod-final.yaml'
+  # --- Dosya Yolu Değişkenleri ---
+  kanikoTemplateFile: 'kaniko-pod-template.yaml' # Repo kök dizinindeki şablon.
+  kanikoFinalFile: '$(Build.ArtifactStagingDirectory)/kaniko-pod-final.yaml' # Geçici olarak oluşturulan manifest.
 
 stages:
-- stage: BuildWithKaniko
-  displayName: 'Build and Push with Kaniko'
+- stage: Build
+  displayName: 'Build and Push Service Image'
   jobs:
-  - job: KanikoJob
-    displayName: 'Build Image for $(serviceName)'
+  - job: BuildImage
+    displayName: 'Build $(serviceName) with Kaniko'
     steps:
     - task: Bash@3
-      displayName: 'Create Final Kaniko Manifest from Template'
+      displayName: '1. Prepare Kaniko Pod Manifest'
       inputs:
         targetType: 'inline'
+        # Best Practice: Karmaşık script'ler harici dosyalarda olmalı. 
+        # Bu 'sed' komutları basit olduğu için şimdilik burada kalabilir.
+        # İlerleyen aşamalarda bu adımı da bir şablona taşıyacağız.
         script: |
+          echo "Preparing manifest for $(serviceName)..."
           cp "$(kanikoTemplateFile)" "$(kanikoFinalFile)"
           
-          # sed komutları yeni değişkenlerimizi kullanacak şekilde güncellendi
-          sed -i "s|__POD_NAME__|$(podName)|g" "$(kanikoFinalFile)"
+          # Pod manifestindeki yer tutucuları değişkenlerle dolduruyoruz.
+          sed -i "s|__POD_NAME__|kaniko-build-$(imageTag)|g" "$(kanikoFinalFile)"
           sed -i "s|__CONTEXT__|$(kanikoContext)|g" "$(kanikoFinalFile)"
           sed -i "s|__CONTEXT_SUB_PATH__|$(kanikoContextSubPath)|g" "$(kanikoFinalFile)"
           sed -i "s|__DOCKERFILE__|$(kanikoDockerfile)|g" "$(kanikoFinalFile)"
           sed -i "s|__DESTINATION_TAG__|$(harborRepo):$(imageTag)|g" "$(kanikoFinalFile)"
-          sed -i "s|__DESTINATION_LATEST__|$(harborRepo):latest|g" "$(kanikoFinalFile)"
           
-          echo "Final Kaniko pod manifest:"
+          # Best Practice: GitOps için 'latest' tag'ini kullanmıyoruz. Bu satırı kaldırıyoruz.
+          sed -i "/__DESTINATION_LATEST__/d" "$(kanikoFinalFile)"
+          
+          echo "--- Final Kaniko Pod Manifest ---"
           cat "$(kanikoFinalFile)"
 
-    # Adım 2: Önceki adımda oluşturduğumuz nihai ve temiz YAML dosyasını uygula.
     - task: Kubernetes@1
-      displayName: 'Apply Kaniko Pod Manifest'
+      displayName: '2. Apply Kaniko Pod to Cluster'
       inputs:
-        connectionType: 'None' # Ajanın kendi kimliğini kullan
-        namespace: '$(namespace)'
+        # Best Practice: Ajanın pod'una atanmış ServiceAccount'ı kullanıyoruz. 
+        # Bu, cluster'a erişim için pipeline'da ek secret'lar tutma ihtiyacını ortadan kaldırır. 
+        connectionType: 'None' 
+        namespace: '$(k8sNamespace)'
         command: 'apply'
         arguments: '-f $(kanikoFinalFile)'
-
-    # Adım 3: Kaniko pod'unun işini bitirmesini bekle.
+        
     - task: Kubernetes@1
-      displayName: 'Wait for Kaniko Pod to Complete'
+      displayName: '3. Wait for Kaniko Pod to Complete'
       inputs:
         connectionType: 'None'
-        namespace: '$(namespace)'
+        namespace: '$(k8sNamespace)'
         command: 'wait'
-        arguments: 'pod/$(podName) --for=condition=Succeeded --timeout=10m'
+        arguments: 'pod/kaniko-build-$(imageTag) --for=condition=Succeeded --timeout=10m'
 
-    # Adım 4: Kaniko pod'unun loglarını göster (hata ayıklama için).
     - task: Kubernetes@1
-      displayName: 'Get Kaniko Pod Logs'
+      displayName: '4. Get Kaniko Pod Logs (for debugging)'
+      condition: always() # Önceki adımlar başarısız olsa bile logları al.
       inputs:
         connectionType: 'None'
-        namespace: '$(namespace)'
+        namespace: '$(k8sNamespace)'
         command: 'logs'
-        arguments: '$(podName)'
-        failOnStdErr: false # Loglarda hata olsa bile pipeline'ı durdurma
+        arguments: 'pod/kaniko-build-$(imageTag)'
+        failOnStdErr: false # Hata logları olsa bile pipeline'ı bu adımda durdurma.
 
-    # Adım 5: İşi biten Kaniko pod'unu silerek cluster'ı temizle.
-   
+    - task: Kubernetes@1
+      displayName: '5. Cleanup: Delete Kaniko Pod'
+      condition: always() # Her durumda pod'u silerek temizlik yap.
+      inputs:
+        connectionType: 'None'
+        namespace: '$(k8sNamespace)'
+        command: 'delete'
+        arguments: 'pod/kaniko-build-$(imageTag) --ignore-not-found=true'
