@@ -1,5 +1,6 @@
-# azure-pipelines.yml - Aşama 1 (Tamamlandı - Daha Verimli Bekleme Mekanizması)
+# azure-pipelines.yml - Aşama 2: Şablonlarla Modüler Yapı
 
+# Tetikleyici şimdilik sadece user_service için, bir sonraki aşamada bunu geliştireceğiz.
 trigger:
   branches:
     include:
@@ -11,67 +12,21 @@ trigger:
 pool:
   name: 'Default'
 
+# Değişkenler artık pipeline genelinde tanımlı ve tüm şablonlar tarafından kullanılabilir.
 variables:
-  serviceName: 'user_service'
-  harborRepo: 'harbor.cloudpro.com.tr/helpdesk/$(serviceName)'
+  # 'harborRepo' değişkeninden servis adını kaldırdık, çünkü bu artık şablonda eklenecek.
+  harborRepo: 'harbor.cloudpro.com.tr/helpdesk' 
   imageTag: '$(Build.BuildId)'
   k8sNamespace: 'ado-agents'
   gitRepoUrl: 'https://dev.azure.com/umutcelik0234/HelpDesk_App/_git/helpdesk-app-src'
   kanikoTemplateFile: 'kaniko-pod-template.yaml'
-  kanikoFinalFile: '$(Build.ArtifactStagingDirectory)/kaniko-pod-final.yaml'
+  kanikoFinalFile: '$(Build.ArtifactStagingDirectory)/kaniko-pod-final' # Servis adı olmadan temel dosya yolu.
 
 stages:
-- stage: Build
-  displayName: 'Build and Push Service Image'
+- stage: Build_Services
+  displayName: 'Build and Push Service Images'
   jobs:
-  - job: BuildImage
-    displayName: 'Build $(serviceName) Image'
-    steps:
-    - task: Bash@3
-      displayName: '1. Prepare Kaniko Pod Manifest'
-      env:
-        AZP_TOKEN: $(System.AccessToken)
-      inputs:
-        targetType: 'inline'
-        script: |
-          echo "Preparing manifest for build $(imageTag)..."
-          cp "$(kanikoTemplateFile)" "$(kanikoFinalFile)"
-          sed -i "s|__POD_NAME__|kaniko-build-$(imageTag)|g" "$(kanikoFinalFile)"
-          sed -i "s|__CONTEXT__|$(gitRepoUrl)|g" "$(kanikoFinalFile)"
-          sed -i "s|__CONTEXT_SUB_PATH__|$(serviceName)|g" "$(kanikoFinalFile)"
-          sed -i "s|__DESTINATION_TAG__|$(harborRepo):$(imageTag)|g" "$(kanikoFinalFile)"
-          sed -i "s|__AZP_TOKEN__|$AZP_TOKEN|g" "$(kanikoFinalFile)"
-          echo "--- Final Kaniko Pod Manifest (token gizlenmiş) ---"
-          cat "$(kanikoFinalFile)" | sed "s/$AZP_TOKEN/********/g"
-
-    - task: Kubernetes@1
-      displayName: '2. Apply Kaniko Pod to Cluster'
-      inputs:
-        connectionType: 'None'
-        namespace: '$(k8sNamespace)'
-        command: 'apply'
-        arguments: '-f $(kanikoFinalFile)'
-        
-    # --- YENİ YAKLAŞIM: "Wait" ve "Get Logs" Adımları Birleştirildi ---
-    - task: Kubernetes@1
-      displayName: '3. Follow Build Logs and Wait for Completion'
-      inputs:
-        connectionType: 'None'
-        namespace: '$(k8sNamespace)'
-        command: 'logs'
-        # --follow bayrağı logları canlı akıtır ve konteyner bitince komut da biter.
-        # Bu, 'wait' komutundan daha güvenilirdir.
-        arguments: 'pod/kaniko-build-$(imageTag) --follow --container=kaniko'
-        
-    # Eski 'wait' ve 'logs' adımları kaldırıldı.
-
-    - task: Kubernetes@1
-      displayName: '4. Cleanup: Delete Kaniko Pod'
-      # 'condition: always()' bu adımda önemli, çünkü bir önceki log adımı
-      # build başarısız olursa hata verecek ve bu adımın yine de çalışmasını istiyoruz.
-      condition: always()
-      inputs:
-        connectionType: 'None'
-        namespace: '$(k8sNamespace)'
-        command: 'delete'
-        arguments: 'pod/kaniko-build-$(imageTag) --ignore-not-found=true'
+    # Artık karmaşık adımlar yerine, sadece şablonu çağırıyoruz.
+    - template: templates/build-service-job.yml
+      parameters:
+        serviceName: 'user_service'
