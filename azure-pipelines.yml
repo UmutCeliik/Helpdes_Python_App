@@ -28,7 +28,7 @@ stages:
       image: gcr.io/kaniko-project/executor:latest
       # Harbor'a erişim için oluşturduğumuz Servis Bağlantısını bağlıyoruz.
       # Bu, Kaniko konteyneri içinde /kaniko/.docker/config.json dosyasını otomatik oluşturur.
-      endpoint: HarborConnection 
+      endpoint: HarborServiceConnection 
 
     steps:
     # 1. Adım: Kaynak kod, 'container' bloğu sayesinde zaten bu konteynerin içine
