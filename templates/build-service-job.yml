@@ -1,5 +1,5 @@
 # templates/build-service-job.yml
-# Herhangi bir servisin imajını build etmek için yeniden kullanılabilir iş (job) şablonu.
+# Değişken aktarımını düzelten nihai sürüm.
 
 parameters:
 - name: serviceName
@@ -22,6 +22,9 @@ jobs:
   
   steps:
   - task: Bash@3
+    # Bu göreve bir isim veriyoruz (name: PrepareManifest)
+    # Bu sayede sonraki adımlarda onun oluşturduğu değişkene referans verebiliriz.
+    name: PrepareManifest
     displayName: '1. Prepare Kaniko Pod Manifest for ${{ parameters.serviceName }}'
     env:
       AZP_TOKEN: $(System.AccessToken)
@@ -30,12 +33,15 @@ jobs:
       script: |
         echo "Preparing manifest for build $(imageTag) for service: $(serviceName)..."
         
-        # DÜZELTME: Pod adı için geçersiz olan '_' karakterini '-' ile değiştiriyoruz.
-        # Bu, Kubernetes'in isimlendirme kuralı ihlalini çözer.
         safePodSuffix=$(echo "$(serviceName)" | sed 's/_/-/g')
         finalPodName="kaniko-build-$(imageTag)-$safePodSuffix"
+        
+        # YENİ EKLENEN SATIR:
+        # 'finalPodName' shell değişkeninin değerini, işin geri kalanında kullanılabilecek
+        # 'safePodName' adında bir pipeline değişkeni olarak ayarlıyoruz.
+        echo "##vso[task.setvariable variable=safePodName]$finalPodName"
+        
         finalManifestFile="$(kanikoFinalFile)-$(serviceName)"
-
         cp "$(kanikoTemplateFile)" "$finalManifestFile"
         
         sed -i "s|__POD_NAME__|$finalPodName|g" "$finalManifestFile"
@@ -53,7 +59,6 @@ jobs:
       connectionType: 'None'
       namespace: '$(k8sNamespace)'
       command: 'apply'
-      # Değişkeni burada da kullanıyoruz.
       arguments: '-f $(kanikoFinalFile)-${{ parameters.serviceName }}'
       
   - task: Kubernetes@1
@@ -62,8 +67,9 @@ jobs:
       connectionType: 'None'
       namespace: '$(k8sNamespace)'
       command: 'logs'
-      # Pod adını burada da düzeltiyoruz.
-      arguments: 'pod/kaniko-build-$(imageTag)-$(echo ${{ parameters.serviceName }} | sed ''s/_/-/g'') --follow --container=kaniko'
+      # DÜZELTME: Artık karmaşık bir ifade yerine, bir önceki adımda
+      # oluşturduğumuz temiz ve güvenilir değişkeni kullanıyoruz.
+      arguments: 'pod/$(safePodName) --follow --container=kaniko'
       
   - task: Kubernetes@1
     displayName: '4. Cleanup Pod for ${{ parameters.serviceName }}'
@@ -72,5 +78,5 @@ jobs:
       connectionType: 'None'
       namespace: '$(k8sNamespace)'
       command: 'delete'
-      # Pod adını burada da düzeltiyoruz.
-      arguments: 'pod/kaniko-build-$(imageTag)-$(echo ${{ parameters.serviceName }} | sed ''s/_/-/g'') --ignore-not-found=true'
+      # DÜZELTME: Aynı temiz değişkeni burada da kullanıyoruz.
+      arguments: 'pod/$(safePodName) --ignore-not-found=true'
