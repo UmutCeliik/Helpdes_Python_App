@@ -12,6 +12,7 @@ spec:
     - "vault.cloudpro.com.tr"
     - "keycloak.cloudpro.com.tr"
     - "argo.cloudpro.com.tr"
+    - "core.harbor.domain"
 
   volumes:
   - name: workspace
