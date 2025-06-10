@@ -1,37 +1,68 @@
+# kaniko-pod-template.yaml - Paylaşımlı Alan Modeli
+
 apiVersion: v1
 kind: Pod
 metadata:
   name: __POD_NAME__
 spec:
-  containers:
-  - name: kaniko
-    image: gcr.io/kaniko-project/executor:latest
-    args:
-      # Argümanlar pipeline tarafından dinamik olarak doldurulacak
-      - "--context=__CONTEXT__"
-      - "--context-sub-path=__CONTEXT_SUB_PATH__"
-      - "--dockerfile=__DOCKERFILE__"
-      - "--destination=__DESTINATION_TAG__"
-      - "--destination=__DESTINATION_LATEST__"
-      - "--cleanup"
-    volumeMounts:
-    - name: harbor-credentials-volume
-      mountPath: /kaniko/.docker/
-    # Yeni eklenen Git secret'ını pod'a bağlıyoruz
-    - name: git-secret-volume
-      mountPath: /root/
-  restartPolicy: Never
+  # 1. Adım: Konteynerlerin paylaşacağı ortak bir alan (volume) tanımlıyoruz.
+  # 'emptyDir' bu pod yaşadığı sürece var olan geçici bir dizindir.
   volumes:
+  - name: workspace
+    emptyDir: {}
   - name: harbor-credentials-volume
     secret:
       secretName: harbor-credentials
       items:
         - key: .dockerconfigjson
           path: config.json
-  # Yeni eklenen Git secret'ını volume olarak tanımlıyoruz
-  - name: git-secret-volume
-    secret:
-      secretName: git-repo-secret
-      items:
-        - key: .git-credentials
-          path: .git-credentials
+
+  # 2. Adım: initContainer - Ana konteynerden önce çalışır.
+  # Görevi: Kaynak kodu Git'ten çekip paylaşımlı alana koymak.
+  initContainers:
+  - name: git-checkout
+    image: alpine/git:latest # Git komutunu içeren minimal bir imaj.
+    # ÖNEMLİ: Kendi repodaki git-repo-secret'ı buraya bağlamıyoruz.
+    # Kaniko'nun kullandığı gibi PAT token'ı burada da kullanacağız.
+    # Azure DevOps'un PAT token'ı bir ortam değişkeni olarak bu konteynere verilecek.
+    env:
+    - name: AZP_TOKEN
+      value: "__AZP_TOKEN__" # Pipeline bu değişkeni dolduracak.
+    - name: GIT_REPO_URL
+      value: "__CONTEXT__" # Pipeline bu değişkeni dolduracak.
+    
+    command: ["/bin/sh", "-c"]
+    args:
+    - |
+      set -e
+      echo "Cloning repository..."
+      # URL'yi PAT token ile birleştirerek klonlama yapıyoruz.
+      # Örnek: https://<PAT>@dev.azure.com/...
+      CLONE_URL=$(echo $GIT_REPO_URL | sed "s,https://,https://$AZP_TOKEN@,")
+      git clone $CLONE_URL /workspace/source
+      
+    # Klonlanan kodu paylaşımlı alana (volume) bağlıyoruz.
+    volumeMounts:
+    - name: workspace
+      mountPath: /workspace
+
+  # 3. Adım: Ana Kaniko Konteyneri
+  containers:
+  - name: kaniko
+    image: gcr.io/kaniko-project/executor:latest
+    args:
+      # Context artık pod içindeki paylaşımlı alandır.
+      - "--context=/workspace/source"
+      - "--context-sub-path=__CONTEXT_SUB_PATH__"
+      - "--dockerfile=/workspace/source/__CONTEXT_SUB_PATH__/Dockerfile"
+      - "--destination=__DESTINATION_TAG__"
+      - "--cleanup"
+    
+    # Kaniko konteyneri de aynı paylaşımlı alana ve Harbor secret'ına erişir.
+    volumeMounts:
+    - name: workspace
+      mountPath: /workspace
+    - name: harbor-credentials-volume
+      mountPath: /kaniko/.docker/
+      
+  restartPolicy: Never
