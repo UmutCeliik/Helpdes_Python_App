@@ -1,5 +1,4 @@
 # azure-pipelines.yml - Final Sürüm
-
 trigger:
   branches:
     include:
@@ -9,16 +8,24 @@ trigger:
       - 'user_service/*'
 
 pool:
-  name: 'Default' # Lütfen bu adı kendi ADO Pool adın ile değiştir
+  name: 'Default'
 
 variables:
   serviceName: 'user-service'
   harborRepo: 'harbor.cloudpro.com.tr/helpdesk/$(serviceName)'
   imageTag: '$(Build.BuildId)'
-  buildContext: 'dir://$(Build.SourcesDirectory)'
-  dockerfilePath: '$(serviceName)/Dockerfile' # Sadece göreli yolu belirtiyoruz
   namespace: 'ado-agents'
   podName: 'kaniko-build-pod-$(imageTag)'
+  k8sConnection: 'RKE2-Kubeconfig-Connection'
+  
+  # --- YENİ VE GÜNCEL KANIKO DEĞİŞKENLERİ ---
+  # Kaniko'ya kaynak kodu hangi repodan çekeceğini söylüyoruz
+  kanikoContext: 'git://https://dev.azure.com/umutcelik0234/HelpDesk_App/_git/helpdesk-app-src'
+  # Reponun içinde hangi alt klasörde çalışacağını belirtiyoruz
+  kanikoContextSubPath: '$(serviceName)'
+  # Dockerfile yolu artık context-sub-path'e göreli
+  kanikoDockerfile: 'Dockerfile'
+  
   kanikoTemplateFile: '$(Build.SourcesDirectory)/kaniko-pod-template.yaml'
   kanikoFinalFile: '$(Build.ArtifactStagingDirectory)/kaniko-pod-final.yaml'
 
@@ -29,25 +36,22 @@ stages:
   - job: KanikoJob
     displayName: 'Build Image for $(serviceName)'
     steps:
-
-    # Adım 1: Şablonu alıp, içindeki değişkenleri doldurarak nihai YAML'ı oluştur.
     - task: Bash@3
       displayName: 'Create Final Kaniko Manifest from Template'
       inputs:
         targetType: 'inline'
         script: |
-          echo "Creating final manifest from template..."
-          # Şablon dosyasını geçici bir alana kopyala
           cp "$(kanikoTemplateFile)" "$(kanikoFinalFile)"
           
-          # sed komutu ile şablondaki yer tutucuları pipeline değişkenleri ile değiştir
+          # sed komutları yeni değişkenlerimizi kullanacak şekilde güncellendi
           sed -i "s|__POD_NAME__|$(podName)|g" "$(kanikoFinalFile)"
-          sed -i "s|__CONTEXT__|$(buildContext)|g" "$(kanikoFinalFile)"
-          sed -i "s|__DOCKERFILE__|$(dockerfilePath)|g" "$(kanikoFinalFile)"
+          sed -i "s|__CONTEXT__|$(kanikoContext)|g" "$(kanikoFinalFile)"
+          sed -i "s|__CONTEXT_SUB_PATH__|$(kanikoContextSubPath)|g" "$(kanikoFinalFile)"
+          sed -i "s|__DOCKERFILE__|$(kanikoDockerfile)|g" "$(kanikoFinalFile)"
           sed -i "s|__DESTINATION_TAG__|$(harborRepo):$(imageTag)|g" "$(kanikoFinalFile)"
           sed -i "s|__DESTINATION_LATEST__|$(harborRepo):latest|g" "$(kanikoFinalFile)"
           
-          echo "Final Kaniko pod manifest content:"
+          echo "Final Kaniko pod manifest:"
           cat "$(kanikoFinalFile)"
 
     # Adım 2: Önceki adımda oluşturduğumuz nihai ve temiz YAML dosyasını uygula.
