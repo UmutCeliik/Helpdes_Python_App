@@ -23,6 +23,9 @@ JWKS_CACHE_TTL_SECONDS = 3600 # 1 saat cache'le
 # tokenUrl burada sadece FastAPI'nin OpenAPI dökümanı için bir ipucu.
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/token_not_issued_here")
 
+#DEGISEN ALAN BUDUR ///////////////////////////////////////////////////////7////////////
+oauth3_scheme = OAuth2PasswordBearer(tokenUrl="auth/token_not_issued_here")
+
 async def fetch_jwks_for_ticket_service(settings: Settings) -> Dict[str, Any]:
     global _jwks_cache, _jwks_cache_expiry
     now = datetime.utcnow()
