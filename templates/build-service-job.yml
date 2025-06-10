@@ -2,12 +2,12 @@
 # Herhangi bir servisin imajını build etmek için yeniden kullanılabilir iş (job) şablonu.
 
 parameters:
-- name: serviceName  # Build edilecek servisin adı (örn: 'user_service')
+- name: serviceName
   type: string
-- name: dependsOn    # Bu işin bağımlı olduğu önceki iş(ler)
+- name: dependsOn
   type: object
   default: []
-- name: condition    # Bu işin çalışması için gereken koşul
+- name: condition
   type: string
   default: succeeded()
 
@@ -18,7 +18,6 @@ jobs:
   condition: ${{ parameters.condition }}
   
   variables:
-    # Parametrelerden gelen servis adını, iş içinde kullanılacak bir değişkene atıyoruz.
     serviceName: ${{ parameters.serviceName }} 
   
   steps:
@@ -30,16 +29,23 @@ jobs:
       targetType: 'inline'
       script: |
         echo "Preparing manifest for build $(imageTag) for service: $(serviceName)..."
-        cp "$(kanikoTemplateFile)" "$(kanikoFinalFile)-$(serviceName)"
         
-        sed -i "s|__POD_NAME__|kaniko-build-$(imageTag)-$(serviceName)|g" "$(kanikoFinalFile)-$(serviceName)"
-        sed -i "s|__CONTEXT__|$(gitRepoUrl)|g" "$(kanikoFinalFile)-$(serviceName)"
-        sed -i "s|__CONTEXT_SUB_PATH__|$(serviceName)|g" "$(kanikoFinalFile)-$(serviceName)"
-        sed -i "s|__DESTINATION_TAG__|$(harborRepo)/$(serviceName):$(imageTag)|g" "$(kanikoFinalFile)-$(serviceName)"
-        sed -i "s|__AZP_TOKEN__|$AZP_TOKEN|g" "$(kanikoFinalFile)-$(serviceName)"
+        # DÜZELTME: Pod adı için geçersiz olan '_' karakterini '-' ile değiştiriyoruz.
+        # Bu, Kubernetes'in isimlendirme kuralı ihlalini çözer.
+        safePodSuffix=$(echo "$(serviceName)" | sed 's/_/-/g')
+        finalPodName="kaniko-build-$(imageTag)-$safePodSuffix"
+        finalManifestFile="$(kanikoFinalFile)-$(serviceName)"
+
+        cp "$(kanikoTemplateFile)" "$finalManifestFile"
+        
+        sed -i "s|__POD_NAME__|$finalPodName|g" "$finalManifestFile"
+        sed -i "s|__CONTEXT__|$(gitRepoUrl)|g" "$finalManifestFile"
+        sed -i "s|__CONTEXT_SUB_PATH__|$(serviceName)|g" "$finalManifestFile"
+        sed -i "s|__DESTINATION_TAG__|$(harborRepo)/$(serviceName):$(imageTag)|g" "$finalManifestFile"
+        sed -i "s|__AZP_TOKEN__|$AZP_TOKEN|g" "$finalManifestFile"
         
         echo "--- Final Kaniko Pod Manifest for $(serviceName) ---"
-        cat "$(kanikoFinalFile)-$(serviceName)" | sed "s/$AZP_TOKEN/********/g"
+        cat "$finalManifestFile" | sed "s/$AZP_TOKEN/********/g"
 
   - task: Kubernetes@1
     displayName: '2. Apply Kaniko Pod for ${{ parameters.serviceName }}'
@@ -47,7 +53,8 @@ jobs:
       connectionType: 'None'
       namespace: '$(k8sNamespace)'
       command: 'apply'
-      arguments: '-f $(kanikoFinalFile)-$(serviceName)'
+      # Değişkeni burada da kullanıyoruz.
+      arguments: '-f $(kanikoFinalFile)-${{ parameters.serviceName }}'
       
   - task: Kubernetes@1
     displayName: '3. Follow Logs for ${{ parameters.serviceName }}'
@@ -55,7 +62,8 @@ jobs:
       connectionType: 'None'
       namespace: '$(k8sNamespace)'
       command: 'logs'
-      arguments: 'pod/kaniko-build-$(imageTag)-$(serviceName) --follow --container=kaniko'
+      # Pod adını burada da düzeltiyoruz.
+      arguments: 'pod/kaniko-build-$(imageTag)-$(echo ${{ parameters.serviceName }} | sed ''s/_/-/g'') --follow --container=kaniko'
       
   - task: Kubernetes@1
     displayName: '4. Cleanup Pod for ${{ parameters.serviceName }}'
@@ -64,4 +72,5 @@ jobs:
       connectionType: 'None'
       namespace: '$(k8sNamespace)'
       command: 'delete'
-      arguments: 'pod/kaniko-build-$(imageTag)-$(serviceName) --ignore-not-found=true'
+      # Pod adını burada da düzeltiyoruz.
+      arguments: 'pod/kaniko-build-$(imageTag)-$(echo ${{ parameters.serviceName }} | sed ''s/_/-/g'') --ignore-not-found=true'
