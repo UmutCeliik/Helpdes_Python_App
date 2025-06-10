@@ -1,5 +1,5 @@
 # templates/build-service-job.yml
-# Değişken aktarımını düzelten nihai sürüm.
+# PodInitializing hatasını çözen son sürüm.
 
 parameters:
 - name: serviceName
@@ -22,8 +22,6 @@ jobs:
   
   steps:
   - task: Bash@3
-    # Bu göreve bir isim veriyoruz (name: PrepareManifest)
-    # Bu sayede sonraki adımlarda onun oluşturduğu değişkene referans verebiliriz.
     name: PrepareManifest
     displayName: '1. Prepare Kaniko Pod Manifest for ${{ parameters.serviceName }}'
     env:
@@ -32,24 +30,16 @@ jobs:
       targetType: 'inline'
       script: |
         echo "Preparing manifest for build $(imageTag) for service: $(serviceName)..."
-        
         safePodSuffix=$(echo "$(serviceName)" | sed 's/_/-/g')
         finalPodName="kaniko-build-$(imageTag)-$safePodSuffix"
-        
-        # YENİ EKLENEN SATIR:
-        # 'finalPodName' shell değişkeninin değerini, işin geri kalanında kullanılabilecek
-        # 'safePodName' adında bir pipeline değişkeni olarak ayarlıyoruz.
         echo "##vso[task.setvariable variable=safePodName]$finalPodName"
-        
         finalManifestFile="$(kanikoFinalFile)-$(serviceName)"
         cp "$(kanikoTemplateFile)" "$finalManifestFile"
-        
         sed -i "s|__POD_NAME__|$finalPodName|g" "$finalManifestFile"
         sed -i "s|__CONTEXT__|$(gitRepoUrl)|g" "$finalManifestFile"
         sed -i "s|__CONTEXT_SUB_PATH__|$(serviceName)|g" "$finalManifestFile"
         sed -i "s|__DESTINATION_TAG__|$(harborRepo)/$(serviceName):$(imageTag)|g" "$finalManifestFile"
         sed -i "s|__AZP_TOKEN__|$AZP_TOKEN|g" "$finalManifestFile"
-        
         echo "--- Final Kaniko Pod Manifest for $(serviceName) ---"
         cat "$finalManifestFile" | sed "s/$AZP_TOKEN/********/g"
 
@@ -61,14 +51,22 @@ jobs:
       command: 'apply'
       arguments: '-f $(kanikoFinalFile)-${{ parameters.serviceName }}'
       
+  # YENİ ADIM: Önce initContainer'ın loglarını takip ederek bitmesini bekliyoruz.
   - task: Kubernetes@1
-    displayName: '3. Follow Logs for ${{ parameters.serviceName }}'
+    displayName: '3a. Wait for Init Container (git-checkout) to Complete'
     inputs:
       connectionType: 'None'
       namespace: '$(k8sNamespace)'
       command: 'logs'
-      # DÜZELTME: Artık karmaşık bir ifade yerine, bir önceki adımda
-      # oluşturduğumuz temiz ve güvenilir değişkeni kullanıyoruz.
+      # '--container' (veya -c) bayrağı ile hangi konteynerin logunu istediğimizi belirtiyoruz.
+      arguments: 'pod/$(safePodName) --follow --container=git-checkout'
+
+  - task: Kubernetes@1
+    displayName: '3b. Follow Logs for Main Container (kaniko)'
+    inputs:
+      connectionType: 'None'
+      namespace: '$(k8sNamespace)'
+      command: 'logs'
       arguments: 'pod/$(safePodName) --follow --container=kaniko'
       
   - task: Kubernetes@1
@@ -78,5 +76,4 @@ jobs:
       connectionType: 'None'
       namespace: '$(k8sNamespace)'
       command: 'delete'
-      # DÜZELTME: Aynı temiz değişkeni burada da kullanıyoruz.
       arguments: 'pod/$(safePodName) --ignore-not-found=true'
