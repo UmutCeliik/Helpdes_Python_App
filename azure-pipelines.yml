@@ -1,5 +1,5 @@
 # azure-pipelines.yml
-# 'resources' bloğu doğru yere (stage altına) taşındı.
+# 'resources' bloğu en üst seviyeye (root) taşınmış son ve doğru hali.
 
 trigger:
   branches:
@@ -25,19 +25,20 @@ variables:
   kanikoTemplateFile: 'kaniko-pod-template.yaml'
   kanikoFinalFile: '$(Build.ArtifactStagingDirectory)/kaniko-pod-final'
 
+# YENİ VE DOĞRU YER:
+# Kaynaklar (konteynerler), pipeline'ın en üst seviyesinde,
+# 'stages' bloğundan önce tanımlanır.
+resources:
+  containers:
+  - container: python_scanner
+    image: python:3.11-slim
+  - container: node_scanner
+    image: node:20-alpine
+
 stages:
 - stage: Build_Services
   displayName: 'Build and Push Service Images'
-  
-  # YENİ EKLENEN BÖLÜM:
-  # Bu aşamada kullanılacak konteyner kaynaklarını burada, doğru yerde tanımlıyoruz.
-  resources:
-    containers:
-    - container: python_scanner
-      image: python:3.11-slim
-    - container: node_scanner
-      image: node:20-alpine
-      
+  # 'resources' bloğu buradan kaldırıldı.
   jobs:
   - job: DetectChanges
     displayName: '1. Detect Changed Services'
