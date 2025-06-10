@@ -1,5 +1,7 @@
-# azure-pipelines.yml - Aşama 3 (Satır Sonu Düzeltmesi Pipeline'a Eklendi)
+# azure-pipelines.yml - Aşama 3: Akıllı Monorepo Mantığı
 
+# Tetikleyici artık tüm ana dalı dinliyor.
+# Sadece belirli klasörlerdeki değişiklikler build'i tetikleyecek.
 trigger:
   branches:
     include:
@@ -10,6 +12,7 @@ trigger:
       - 'ticket_service/*'
       - 'auth_service/*'
       - 'frontend/*'
+    # README gibi dosyalardaki değişiklikler için pipeline'ı boşuna çalıştırma.
     exclude:
       - README.md
 
@@ -28,35 +31,30 @@ stages:
 - stage: Build_Services
   displayName: 'Build and Push Service Images'
   jobs:
+  # YENİ İŞ: Değişiklikleri algılayan ilk işimiz.
   - job: DetectChanges
     displayName: '1. Detect Changed Services'
     steps:
+      # Git geçmişinin tamamını çekmek için fetchDepth: 0 ekliyoruz.
       - checkout: self
         fetchDepth: 0
-      
       - task: Bash@3
-        displayName: 'Sanitize line endings in script'
-        inputs:
-          targetType: 'inline'
-          script: |
-            echo "Fixing line endings for detect-changes.sh to prevent CRLF issues..."
-            sed -i 's/\r$//' templates/detect-changes.sh
-            echo "Sanitizing complete."
-
-      - task: Bash@3
+        # Bu adıma bir isim veriyoruz ki, çıktısına referans verebilelim.
         name: detect_changes_step 
         displayName: 'Run change detection script'
         inputs:
           targetType: 'inline'
           script: |
-            # Artık bu script'in doğru formatta olduğundan eminiz.
             chmod +x templates/detect-changes.sh
             ./templates/detect-changes.sh
 
+  # Her servis için build işi artık 'DetectChanges' işine bağımlı ve koşullu.
   - template: templates/build-service-job.yml
     parameters:
       serviceName: 'user_service'
       dependsOn: DetectChanges
+      # 'DetectChanges' işinin 'detect_changes_step' adımının ürettiği 
+      # 'USER_SERVICE_CHANGED' değişkeni 'true' ise bu iş çalışır.
       condition: eq(dependencies.DetectChanges.outputs['detect_changes_step.USER_SERVICE_CHANGED'], 'true')
 
   - template: templates/build-service-job.yml
