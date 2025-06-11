@@ -22,8 +22,7 @@ spec:
     args:
     - |
       set -e
-      mkdir -p /workspace/source
-      cd /workspace/source
+      cd /workspace
       CLONE_URL=$(echo $GIT_REPO_URL | sed "s,https://,https://$AZP_TOKEN@,")
       git clone $CLONE_URL .
     volumeMounts:
@@ -37,9 +36,6 @@ spec:
     command: ["/bin/sh", "-c"]
     args:
     - |
-      echo "--- DEBUG: Listing contents of /workspace ---"
-      ls -laR /workspace
-      echo "--- DEBUG: End of listing ---"
       set -e
       echo "SCA Scan starting for service type: $SERVICE_TYPE"
       if [ "$SERVICE_TYPE" = "frontend" ]; then
@@ -60,6 +56,6 @@ spec:
 
     volumeMounts:
     - name: workspace
-      mountPath: /workspace/source
+      mountPath: /workspace
       
   restartPolicy: Never
