@@ -37,7 +37,7 @@ jobs:
       script: |
         echo "Preparing SCA manifest for service: $(serviceName)..."
         if [[ "$(serviceName)" == "frontend" ]]; then
-          SCANNER_IMAGE="node:20-alpine"
+          SCANNER_IMAGE="node:20-slim"
           SERVICE_TYPE="frontend"
         else
           SCANNER_IMAGE="python:3.11-slim"
@@ -50,7 +50,6 @@ jobs:
 
         cp templates/sca-pod-template.yaml "$(kanikoFinalFile)-sca-$(serviceName)"
         
-        # Script, iş seviyesindeki $AZP_TOKEN değişkenini sorunsuzca kullanabilir.
         sed -i "s|__POD_NAME__|$scaPodName|g" "$(kanikoFinalFile)-sca-$(serviceName)"
         sed -i "s|__CONTEXT__|$(gitRepoUrl)|g" "$(kanikoFinalFile)-sca-$(serviceName)"
         sed -i "s|__CONTEXT_SUB_PATH__|$(serviceName)|g" "$(kanikoFinalFile)-sca-$(serviceName)"
