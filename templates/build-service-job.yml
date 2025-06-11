@@ -22,7 +22,6 @@ jobs:
   # Bu, AZP_TOKEN'ı bu işin içindeki tüm adımlar için bir ortam değişkeni yapar.
   variables:
     serviceName: ${{ parameters.serviceName }}
-    AZP_TOKEN: $(System.AccessToken)
 
   steps:
   # ===================================================================
@@ -31,7 +30,8 @@ jobs:
   - task: Bash@3
     name: PrepareScaManifest
     displayName: '1a. Prepare SCA Pod Manifest'
-    # Bu görevden 'env:' bloğu kaldırıldı. Script, iş seviyesindeki değişkeni kullanacak.
+    env:
+      AZP_TOKEN: $(System.AccessToken)
     inputs:
       targetType: 'inline'
       script: |
@@ -108,6 +108,8 @@ jobs:
   - task: Bash@3
     name: PrepareKanikoManifest
     displayName: '2a. Prepare Kaniko Pod Manifest'
+    env:
+          AZP_TOKEN: $(System.AccessToken)
     inputs:
       targetType: 'inline'
       script: |
