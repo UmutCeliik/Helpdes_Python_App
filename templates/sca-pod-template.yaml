@@ -1,0 +1,46 @@
+# templates/sca-pod-template.yaml
+# SCA taraması yapmak için tasarlanmış pod şablonu.
+
+apiVersion: v1
+kind: Pod
+metadata:
+  name: __POD_NAME__
+spec:
+  volumes:
+  - name: workspace
+    emptyDir: {}
+
+  initContainers:
+  - name: git-checkout
+    image: alpine/git:latest
+    env:
+    - name: AZP_TOKEN
+      value: "__AZP_TOKEN__"
+    - name: GIT_REPO_URL
+      value: "__CONTEXT__"
+    command: ["/bin/sh", "-c"]
+    args:
+    - |
+      set -e
+      CLONE_URL=$(echo $GIT_REPO_URL | sed "s,https://,https://$AZP_TOKEN@,")
+      git clone $CLONE_URL /workspace/source
+    volumeMounts:
+    - name: workspace
+      mountPath: /workspace
+
+  # Ana konteyner artık Kaniko değil, tarama yapacak olan Python veya Node.js imajı.
+  containers:
+  - name: scanner
+    # HANGİ İMAJIN KULLANILACAĞI PİPELİNE TARAFINDAN DEĞİŞTİRİLECEK.
+    image: __SCANNER_IMAGE__
+    workingDir: /workspace/source/__CONTEXT_SUB_PATH__
+    command: ["/bin/sh", "-c"]
+    # HANGİ KOMUTUN ÇALIŞACAĞI PİPELİNE TARAFINDAN DEĞİŞTİRİLECEK.
+    args:
+    - __SCAN_COMMAND__
+    
+    volumeMounts:
+    - name: workspace
+      mountPath: /workspace/source
+      
+  restartPolicy: Never
