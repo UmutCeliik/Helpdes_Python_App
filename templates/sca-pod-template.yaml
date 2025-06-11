@@ -36,10 +36,6 @@ spec:
     command: ["/bin/sh", "-c"]
     args:
     - |
-      echo "--- DEBUG: Listing contents of /workspace ---"
-      ls -laR /workspace
-      echo "--- DEBUG: End of listing ---"
-
       set -e
       echo "SCA Scan starting for service type: $SERVICE_TYPE"
       if [ "$SERVICE_TYPE" = "frontend" ]; then
@@ -47,10 +43,10 @@ spec:
         npm install
         npm audit --audit-level=moderate || (echo "npm audit found vulnerabilities" && exit 1)
       else
-        echo "Running Python SCA Scan in $(pwd)..."
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt pip-audit
-        pip-audit -r requirements.txt --fail-on HIGH
+        echo "Running Python SCA Scan..."
+        python -m pip install -r requirements.txt
+        python -m pip install pip-audit
+        pip-audit --fail-on HIGH
       fi
     
     env:
