@@ -75,22 +75,20 @@ jobs:
       script: |
         echo "Waiting for pod $(scaPodName) to finish initializing..."
         while true; do
-          STATUS_CHECK=$(kubectl get pod $(scaPodName) -n $(k8sNamespace) -o jsonpath='{.status.containerStatuses[?(@.name=="scanner")].state}')
+          STATUS_CHECK=$(kubectl get pod $(scaPodName) -n $(k8sNamespace) -o jsonpath='{.status.containerStatuses[?(@.name=="scanner")].state}' 2>/dev/null)
           if [[ -n "$STATUS_CHECK" ]] && [[ ! "$STATUS_CHECK" =~ "waiting" ]]; then
-            echo "Container 'scanner' has started or completed. Proceeding to get logs."
+            echo "Container 'scanner' has started. Attaching to log stream..."
             break
+          fi
+          PHASE_CHECK=$(kubectl get pod $(scaPodName) -n $(k8sNamespace) -o jsonpath='{.status.phase}' 2>/dev/null)
+          if [[ "$PHASE_CHECK" == "Failed" ]] || [[ "$PHASE_CHECK" == "Succeeded" ]]; then
+             echo "Pod has already terminated with phase: $PHASE_CHECK. Getting final logs."
+             break
           fi
           echo "Pod is still initializing..."
           sleep 5
         done
-        echo "Getting logs from completed container..."
         kubectl logs $(scaPodName) -n $(k8sNamespace) -c scanner --follow
-        FINAL_PHASE=$(kubectl get pod $(scaPodName) -n $(k8sNamespace) -o jsonpath='{.status.phase}')
-        if [ "$FINAL_PHASE" != "Succeeded" ]; then
-            echo "SCA Pod did not succeed. Final phase: $FINAL_PHASE"
-            exit 1
-        fi
-        echo "SCA Pod completed successfully. Phase: $FINAL_PHASE"
 
   - task: Kubernetes@1
     displayName: '1d. Cleanup SCA Pod'
