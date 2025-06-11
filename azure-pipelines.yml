@@ -15,7 +15,7 @@ trigger:
       - README.md
 
 pool:
-  name: 'Default'
+  name: 'RKE2'
 
 variables:
   harborRepo: 'harbor.cloudpro.com.tr/helpdesk' 
