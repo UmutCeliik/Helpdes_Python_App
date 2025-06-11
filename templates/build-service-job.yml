@@ -1,5 +1,5 @@
 # templates/build-service-job.yml
-# PodInitializing hatasını çözmek için bekleme adımları düzeltildi.
+# Token değişkeninin doğru yere (variables) taşındığı son sürüm.
 
 parameters:
 - name: serviceName
@@ -15,22 +15,23 @@ jobs:
 - job: Build_${{ parameters.serviceName }}
   displayName: 'Build Image for ${{ parameters.serviceName }}'
   dependsOn: ${{ parameters.dependsOn }}
-  condition: ${{ parameters.condition }}  
-  timeoutInMinutes: 30 
+  condition: ${{ parameters.condition }}
+  timeoutInMinutes: 30
 
+  # DÜZELTME: 'env:' bloğu kaldırıldı ve AZP_TOKEN buraya, 'variables' altına taşındı.
+  # Bu, AZP_TOKEN'ı bu işin içindeki tüm adımlar için bir ortam değişkeni yapar.
   variables:
-    serviceName: ${{ parameters.serviceName }} 
-
-  env:
+    serviceName: ${{ parameters.serviceName }}
     AZP_TOKEN: $(System.AccessToken)
-  
+
   steps:
   # ===================================================================
-  # BÖLÜM 1: SCA TARAMA POD'UNU OLUŞTURMA VE ÇALIŞTIRMA
+  # BÖLÜM 1: SCA TARAMA POD'U
   # ===================================================================
   - task: Bash@3
     name: PrepareScaManifest
     displayName: '1a. Prepare SCA Pod Manifest'
+    # Bu görevden 'env:' bloğu kaldırıldı. Script, iş seviyesindeki değişkeni kullanacak.
     inputs:
       targetType: 'inline'
       script: |
@@ -49,7 +50,7 @@ jobs:
 
         cp templates/sca-pod-template.yaml "$(kanikoFinalFile)-sca-$(serviceName)"
         
-        # Script artık iş seviyesindeki $AZP_TOKEN'ı sorunsuzca kullanabilir.
+        # Script, iş seviyesindeki $AZP_TOKEN değişkenini sorunsuzca kullanabilir.
         sed -i "s|__POD_NAME__|$scaPodName|g" "$(kanikoFinalFile)-sca-$(serviceName)"
         sed -i "s|__CONTEXT__|$(gitRepoUrl)|g" "$(kanikoFinalFile)-sca-$(serviceName)"
         sed -i "s|__CONTEXT_SUB_PATH__|$(serviceName)|g" "$(kanikoFinalFile)-sca-$(serviceName)"
@@ -57,7 +58,9 @@ jobs:
         sed -i "s|__SCANNER_IMAGE__|$SCANNER_IMAGE|g" "$(kanikoFinalFile)-sca-$(serviceName)"
         sed -i "s|__SERVICE_TYPE__|$SERVICE_TYPE|g" "$(kanikoFinalFile)-sca-$(serviceName)"
 
-
+  # ... (Diğer tüm apply, wait, cleanup adımları aynı kalır) ...
+  # Not: Bu adımların içeriği bir önceki çalışan versiyondaki gibi korunmalıdır.
+  # Sadece bu dosyanın tam ve çalışır halini istendiği için tekrar eklenmiştir.
   - task: Kubernetes@1
     displayName: '1b. Apply & Run SCA Pod'
     inputs:
@@ -67,29 +70,22 @@ jobs:
       arguments: '-f $(kanikoFinalFile)-sca-$(serviceName)'
 
   - task: Bash@3
-    displayName: '1c. Wait for SCA Pod to be Ready & Get Logs'
+    displayName: '1c. Wait for SCA Pod to Complete & Get Logs'
     inputs:
       targetType: 'inline'
       script: |
         echo "Waiting for pod $(scaPodName) to finish initializing..."
-        
-        # 'scanner' konteyneri 'waiting' durumundan çıkana kadar bekle
-        # Sonsuz döngü riski, yukarıdaki 'timeoutInMinutes' ile yönetiliyor.
         while true; do
           STATUS_CHECK=$(kubectl get pod $(scaPodName) -n $(k8sNamespace) -o jsonpath='{.status.containerStatuses[?(@.name=="scanner")].state}')
-          
           if [[ -n "$STATUS_CHECK" ]] && [[ ! "$STATUS_CHECK" =~ "waiting" ]]; then
             echo "Container 'scanner' has started or completed. Proceeding to get logs."
             break
           fi
-          
           echo "Pod is still initializing..."
           sleep 5
         done
-
         echo "Getting logs from completed container..."
         kubectl logs $(scaPodName) -n $(k8sNamespace) -c scanner --tail=-1
-        
         FINAL_PHASE=$(kubectl get pod $(scaPodName) -n $(k8sNamespace) -o jsonpath='{.status.phase}')
         if [ "$FINAL_PHASE" != "Succeeded" ]; then
             echo "SCA Pod did not succeed. Final phase: $FINAL_PHASE"
@@ -98,16 +94,7 @@ jobs:
         echo "SCA Pod completed successfully. Phase: $FINAL_PHASE"
 
   - task: Kubernetes@1
-    displayName: '1d. Follow SCA Main Container (scanner) Logs'
-    inputs:
-      connectionType: 'None'
-      namespace: '$(k8sNamespace)'
-      command: 'logs'
-      # initContainer bitince, ana konteynerin loglarını takip ediyoruz.
-      arguments: 'pod/$(scaPodName) --follow --container=scanner'
-
-  - task: Kubernetes@1
-    displayName: '1e. Cleanup SCA Pod'
+    displayName: '1d. Cleanup SCA Pod'
     condition: always()
     inputs:
       connectionType: 'None'
@@ -116,7 +103,7 @@ jobs:
       arguments: 'pod/$(scaPodName) --ignore-not-found=true'
 
   # ===================================================================
-  # BÖLÜM 2: KANIKO BUILD POD'UNU OLUŞTURMA VE ÇALIŞTIRMA (SCA başarılıysa)
+  # BÖLÜM 2: KANIKO BUILD POD'U
   # ===================================================================
   - task: Bash@3
     name: PrepareKanikoManifest
@@ -127,33 +114,27 @@ jobs:
         safePodSuffix=$(echo "$(serviceName)" | sed 's/_/-/g')
         kanikoPodName="kaniko-build-$(imageTag)-$safePodSuffix"
         echo "##vso[task.setvariable variable=kanikoPodName]$kanikoPodName"
-        
         cp "$(kanikoTemplateFile)" "$(kanikoFinalFile)-kaniko-$(serviceName)"
-        
         sed -i "s|__POD_NAME__|$kanikoPodName|g" "$(kanikoFinalFile)-kaniko-$(serviceName)"
         sed -i "s|__CONTEXT__|$(gitRepoUrl)|g" "$(kanikoFinalFile)-kaniko-$(serviceName)"
         sed -i "s|__CONTEXT_SUB_PATH__|$(serviceName)|g" "$(kanikoFinalFile)-kaniko-$(serviceName)"
         sed -i "s|__DESTINATION_TAG__|$(harborRepo)/$(serviceName):$(imageTag)|g" "$(kanikoFinalFile)-kaniko-$(serviceName)"
         sed -i "s|__AZP_TOKEN__|$AZP_TOKEN|g" "$(kanikoFinalFile)-kaniko-$(serviceName)"
 
-
   - task: Kubernetes@1
     displayName: '2b. Apply & Run Kaniko Pod'
-    # ... (öncekiyle aynı apply adımı)
     inputs:
       connectionType: 'None'
       namespace: '$(k8sNamespace)'
       command: 'apply'
       arguments: '-f $(kanikoFinalFile)-kaniko-$(serviceName)'
-      
+
   - task: Bash@3
     displayName: '2c. Wait for Kaniko Pod to Complete & Get Logs'
     inputs:
       targetType: 'inline'
       script: |
         echo "Waiting for pod $(kanikoPodName) to finish initializing..."
-        
-        # Kaniko konteyneri 'waiting' durumundan çıkana kadar bekle
         while true; do
           STATUS_CHECK=$(kubectl get pod $(kanikoPodName) -n $(k8sNamespace) -o jsonpath='{.status.containerStatuses[?(@.name=="kaniko")].state}')
           if [[ -n "$STATUS_CHECK" ]] && [[ ! "$STATUS_CHECK" =~ "waiting" ]]; then
@@ -161,11 +142,9 @@ jobs:
             kubectl logs $(kanikoPodName) -n $(k8sNamespace) -c kaniko --follow
             break
           fi
-          
           echo "Kaniko pod is still initializing..."
           sleep 5
         done
-        
         FINAL_PHASE=$(kubectl get pod $(kanikoPodName) -n $(k8sNamespace) -o jsonpath='{.status.phase}')
         if [ "$FINAL_PHASE" != "Succeeded" ]; then
             echo "Kaniko Pod did not succeed. Final phase: $FINAL_PHASE"
@@ -175,7 +154,6 @@ jobs:
 
   - task: Kubernetes@1
     displayName: '2d. Cleanup Kaniko Pod'
-    # ... (öncekiyle aynı delete adımı)
     condition: always()
     inputs:
       connectionType: 'None'
