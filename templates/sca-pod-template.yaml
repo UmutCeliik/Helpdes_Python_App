@@ -1,5 +1,5 @@
 # templates/sca-pod-template.yaml
-# git clone komutu düzeltilmiş hali.
+# Dosya yapısını loglamak için hata ayıklama komutları eklendi.
 
 apiVersion: v1
 kind: Pod
@@ -18,18 +18,14 @@ spec:
       value: "__AZP_TOKEN__"
     - name: GIT_REPO_URL
       value: "__CONTEXT__"
-    
-    # DÜZELTME: Komutu, doğrudan /workspace/source içine klonlama yapacak şekilde güncelliyoruz.
     command: ["/bin/sh", "-c"]
     args:
     - |
       set -e
-      # Klonlama yapılacak dizini oluştur ve içine gir
       mkdir -p /workspace/source
       cd /workspace/source
       CLONE_URL=$(echo $GIT_REPO_URL | sed "s,https://,https://$AZP_TOKEN@,")
       git clone $CLONE_URL .
-      
     volumeMounts:
     - name: workspace
       mountPath: /workspace
@@ -41,6 +37,9 @@ spec:
     command: ["/bin/sh", "-c"]
     args:
     - |
+      echo "--- DEBUG: Listing contents of /workspace ---"
+      ls -laR /workspace
+      echo "--- DEBUG: End of listing ---"
       set -e
       echo "SCA Scan starting for service type: $SERVICE_TYPE"
       if [ "$SERVICE_TYPE" = "frontend" ]; then
