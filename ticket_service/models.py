@@ -6,7 +6,6 @@ from datetime import datetime
 
 class UserInTicketResponse(BaseModel):
     """Bilet yanıtlarında gösterilecek temel kullanıcı bilgisi."""
-    """Bilet yanıtlarında gösterilecek temel kullanıcı bilgisi."""
     id: uuid.UUID
     full_name: str
     email: str
