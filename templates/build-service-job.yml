@@ -17,6 +17,8 @@ jobs:
   dependsOn: ${{ parameters.dependsOn }}
   condition: ${{ parameters.condition }}
   
+  timeoutInMinutes: 30 
+
   variables:
     serviceName: ${{ parameters.serviceName }} 
   
@@ -62,15 +64,36 @@ jobs:
       command: 'apply'
       arguments: '-f $(kanikoFinalFile)-sca-$(serviceName)'
 
-  # DÜZELTME: 'Follow SCA Pod Logs' adımını ikiye ayırıyoruz.
-  - task: Kubernetes@1
-    displayName: '1c. Wait for SCA Init Container (git-checkout) to Complete'
+  - task: Bash@3
+    displayName: '1c. Wait for SCA Pod to be Ready & Get Logs'
     inputs:
-      connectionType: 'None'
-      namespace: '$(k8sNamespace)'
-      command: 'logs'
-      # Önce initContainer'ın loglarını takip edip bitmesini bekliyoruz.
-      arguments: 'pod/$(scaPodName) --follow --container=git-checkout'
+      targetType: 'inline'
+      script: |
+        echo "Waiting for pod $(scaPodName) to finish initializing..."
+        
+        # 'scanner' konteyneri 'waiting' durumundan çıkana kadar bekle
+        # Sonsuz döngü riski, yukarıdaki 'timeoutInMinutes' ile yönetiliyor.
+        while true; do
+          STATUS_CHECK=$(kubectl get pod $(scaPodName) -n $(k8sNamespace) -o jsonpath='{.status.containerStatuses[?(@.name=="scanner")].state}')
+          
+          if [[ -n "$STATUS_CHECK" ]] && [[ ! "$STATUS_CHECK" =~ "waiting" ]]; then
+            echo "Container 'scanner' has started or completed. Proceeding to get logs."
+            break
+          fi
+          
+          echo "Pod is still initializing..."
+          sleep 5
+        done
+
+        echo "Getting logs from completed container..."
+        kubectl logs $(scaPodName) -n $(k8sNamespace) -c scanner --tail=-1
+        
+        FINAL_PHASE=$(kubectl get pod $(scaPodName) -n $(k8sNamespace) -o jsonpath='{.status.phase}')
+        if [ "$FINAL_PHASE" != "Succeeded" ]; then
+            echo "SCA Pod did not succeed. Final phase: $FINAL_PHASE"
+            exit 1
+        fi
+        echo "SCA Pod completed successfully. Phase: $FINAL_PHASE"
 
   - task: Kubernetes@1
     displayName: '1d. Follow SCA Main Container (scanner) Logs'
@@ -122,14 +145,32 @@ jobs:
       command: 'apply'
       arguments: '-f $(kanikoFinalFile)-kaniko-$(serviceName)'
       
-  - task: Kubernetes@1
-    displayName: '2c. Follow Kaniko Pod Logs'
-    # ... (öncekiyle aynı logs adımları)
+  - task: Bash@3
+    displayName: '2c. Wait for Kaniko Pod to Complete & Get Logs'
     inputs:
-      connectionType: 'None'
-      namespace: '$(k8sNamespace)'
-      command: 'logs'
-      arguments: 'pod/$(kanikoPodName) --follow --all-containers'
+      targetType: 'inline'
+      script: |
+        echo "Waiting for pod $(kanikoPodName) to finish initializing..."
+        
+        # Kaniko konteyneri 'waiting' durumundan çıkana kadar bekle
+        while true; do
+          STATUS_CHECK=$(kubectl get pod $(kanikoPodName) -n $(k8sNamespace) -o jsonpath='{.status.containerStatuses[?(@.name=="kaniko")].state}')
+          if [[ -n "$STATUS_CHECK" ]] && [[ ! "$STATUS_CHECK" =~ "waiting" ]]; then
+            echo "Container 'kaniko' has started. Following logs."
+            kubectl logs $(kanikoPodName) -n $(k8sNamespace) -c kaniko --follow
+            break
+          fi
+          
+          echo "Kaniko pod is still initializing..."
+          sleep 5
+        done
+        
+        FINAL_PHASE=$(kubectl get pod $(kanikoPodName) -n $(k8sNamespace) -o jsonpath='{.status.phase}')
+        if [ "$FINAL_PHASE" != "Succeeded" ]; then
+            echo "Kaniko Pod did not succeed. Final phase: $FINAL_PHASE"
+            exit 1
+        fi
+        echo "Kaniko Pod completed successfully. Phase: $FINAL_PHASE"
 
   - task: Kubernetes@1
     displayName: '2d. Cleanup Kaniko Pod'
