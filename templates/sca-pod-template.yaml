@@ -32,7 +32,7 @@ spec:
   containers:
   - name: scanner
     image: __SCANNER_IMAGE__
-    workingDir: /workspace/source/__CONTEXT_SUB_PATH__
+    workingDir: /workspace/__CONTEXT_SUB_PATH__
     command: ["/bin/sh", "-c"]
     args:
     - |
