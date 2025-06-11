@@ -36,6 +36,10 @@ spec:
     command: ["/bin/sh", "-c"]
     args:
     - |
+      echo "--- DEBUG: Listing contents of /workspace ---"
+      ls -laR /workspace
+      echo "--- DEBUG: End of listing ---"
+
       set -e
       echo "SCA Scan starting for service type: $SERVICE_TYPE"
       if [ "$SERVICE_TYPE" = "frontend" ]; then
