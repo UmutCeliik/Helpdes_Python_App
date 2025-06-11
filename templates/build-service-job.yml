@@ -1,5 +1,5 @@
 # templates/build-service-job.yml
-# Her görev için ayrı pod oluşturan nihai ve kararlı sürüm.
+# PodInitializing hatasını çözmek için bekleme adımları düzeltildi.
 
 parameters:
 - name: serviceName
@@ -47,14 +47,12 @@ jobs:
 
         cp templates/sca-pod-template.yaml "$(kanikoFinalFile)-sca-$(serviceName)"
         
-        # 'sed' komutlarımız artık çok daha basit ve güvenilir.
         sed -i "s|__POD_NAME__|$scaPodName|g" "$(kanikoFinalFile)-sca-$(serviceName)"
         sed -i "s|__CONTEXT__|$(gitRepoUrl)|g" "$(kanikoFinalFile)-sca-$(serviceName)"
         sed -i "s|__CONTEXT_SUB_PATH__|$(serviceName)|g" "$(kanikoFinalFile)-sca-$(serviceName)"
         sed -i "s|__AZP_TOKEN__|$(AZP_TOKEN)|g" "$(kanikoFinalFile)-sca-$(serviceName)"
         sed -i "s|__SCANNER_IMAGE__|$SCANNER_IMAGE|g" "$(kanikoFinalFile)-sca-$(serviceName)"
         sed -i "s|__SERVICE_TYPE__|$SERVICE_TYPE|g" "$(kanikoFinalFile)-sca-$(serviceName)"
-
 
   - task: Kubernetes@1
     displayName: '1b. Apply & Run SCA Pod'
@@ -64,16 +62,27 @@ jobs:
       command: 'apply'
       arguments: '-f $(kanikoFinalFile)-sca-$(serviceName)'
 
+  # DÜZELTME: 'Follow SCA Pod Logs' adımını ikiye ayırıyoruz.
   - task: Kubernetes@1
-    displayName: '1c. Follow SCA Pod Logs'
+    displayName: '1c. Wait for SCA Init Container (git-checkout) to Complete'
     inputs:
       connectionType: 'None'
       namespace: '$(k8sNamespace)'
       command: 'logs'
-      arguments: 'pod/$(scaPodName) --follow --all-containers'
+      # Önce initContainer'ın loglarını takip edip bitmesini bekliyoruz.
+      arguments: 'pod/$(scaPodName) --follow --container=git-checkout'
 
   - task: Kubernetes@1
-    displayName: '1d. Cleanup SCA Pod'
+    displayName: '1d. Follow SCA Main Container (scanner) Logs'
+    inputs:
+      connectionType: 'None'
+      namespace: '$(k8sNamespace)'
+      command: 'logs'
+      # initContainer bitince, ana konteynerin loglarını takip ediyoruz.
+      arguments: 'pod/$(scaPodName) --follow --container=scanner'
+
+  - task: Kubernetes@1
+    displayName: '1e. Cleanup SCA Pod'
     condition: always()
     inputs:
       connectionType: 'None'
