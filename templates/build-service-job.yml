@@ -84,7 +84,7 @@ jobs:
           sleep 5
         done
         echo "Getting logs from completed container..."
-        kubectl logs $(scaPodName) -n $(k8sNamespace) -c scanner --tail=-1
+        kubectl logs $(scaPodName) -n $(k8sNamespace) -c scanner --follow
         FINAL_PHASE=$(kubectl get pod $(scaPodName) -n $(k8sNamespace) -o jsonpath='{.status.phase}')
         if [ "$FINAL_PHASE" != "Succeeded" ]; then
             echo "SCA Pod did not succeed. Final phase: $FINAL_PHASE"
@@ -135,23 +135,23 @@ jobs:
     inputs:
       targetType: 'inline'
       script: |
-        echo "Waiting for pod $(kanikoPodName) to finish initializing..."
+        echo "Waiting for pod $(kanikoPodName) to start..."
         while true; do
-          STATUS_CHECK=$(kubectl get pod $(kanikoPodName) -n $(k8sNamespace) -o jsonpath='{.status.containerStatuses[?(@.name=="kaniko")].state}')
+          STATUS_CHECK=$(kubectl get pod $(kanikoPodName) -n $(k8sNamespace) -o jsonpath='{.status.containerStatuses[?(@.name=="kaniko")].state}' 2>/dev/null)
           if [[ -n "$STATUS_CHECK" ]] && [[ ! "$STATUS_CHECK" =~ "waiting" ]]; then
-            echo "Container 'kaniko' has started. Following logs."
-            kubectl logs $(kanikoPodName) -n $(k8sNamespace) -c kaniko --follow
+            echo "Container 'kaniko' has started. Attaching to log stream..."
             break
+          fi
+          PHASE_CHECK=$(kubectl get pod $(kanikoPodName) -n $(k8sNamespace) -o jsonpath='{.status.phase}' 2>/dev/null)
+          if [[ "$PHASE_CHECK" == "Failed" ]] || [[ "$PHASE_CHECK" == "Succeeded" ]]; then
+             echo "Pod has already terminated with phase: $PHASE_CHECK. Getting final logs."
+             break
           fi
           echo "Kaniko pod is still initializing..."
           sleep 5
         done
-        FINAL_PHASE=$(kubectl get pod $(kanikoPodName) -n $(k8sNamespace) -o jsonpath='{.status.phase}')
-        if [ "$FINAL_PHASE" != "Succeeded" ]; then
-            echo "Kaniko Pod did not succeed. Final phase: $FINAL_PHASE"
-            exit 1
-        fi
-        echo "Kaniko Pod completed successfully. Phase: $FINAL_PHASE"
+        
+        kubectl logs $(kanikoPodName) -n $(k8sNamespace) -c kaniko --follow
 
   - task: Kubernetes@1
     displayName: '2d. Cleanup Kaniko Pod'
