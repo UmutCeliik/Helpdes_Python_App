@@ -16,7 +16,7 @@ jobs:
   displayName: 'Build Image for ${{ parameters.serviceName }}'
   dependsOn: ${{ parameters.dependsOn }}
   condition: ${{ parameters.condition }}
-  timeoutInMinutes: 2
+  timeoutInMinutes: 10
 
   # DÜZELTME: 'env:' bloğu kaldırıldı ve AZP_TOKEN buraya, 'variables' altına taşındı.
   # Bu, AZP_TOKEN'ı bu işin içindeki tüm adımlar için bir ortam değişkeni yapar.
