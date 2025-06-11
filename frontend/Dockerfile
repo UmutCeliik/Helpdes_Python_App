@@ -6,13 +6,13 @@ FROM node:20-alpine AS build
 WORKDIR /app
 
 # package.json ve package-lock.json dosyalarını kopyalıyoruz
-COPY package*.json ./
+COPY frontend/package*.json ./
 
 # Bağımlılıkları kuruyoruz
 RUN npm install
 
 # Tüm proje dosyalarını kopyalıyoruz
-COPY . .
+COPY frontend/ .
 
 # Vue projesini derleyip /app/dist klasörüne statik dosyaları oluşturuyoruz
 RUN npm run build
@@ -27,7 +27,7 @@ COPY --from=build /app/dist /usr/share/nginx/html
 
 # Vue Router'ın History Modu'nda düzgün çalışması için Nginx konfigürasyonunu kopyalıyoruz
 # (Bu dosyayı bir sonraki adımda oluşturacağız)
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY frontend/nginx.conf /etc/nginx/conf.d/default.conf
 
 # Konteynerin 80 portunu dinleyeceğini belirtiyoruz
 EXPOSE 80
