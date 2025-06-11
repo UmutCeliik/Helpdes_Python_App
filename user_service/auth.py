@@ -8,11 +8,12 @@ from datetime import datetime, timedelta
 from .config import get_settings, Settings
 import secrets
 
-_jwks_cache_user: Optional[Dict[str, Any]] = None # Cache değişken adını özelleştir
+_jwks_cache_user: Optional[Dict[str, Any]] = None # Cache değişken adını özelleştirr
 _jwks_cache_expiry_user: Optional[datetime] = None
 JWKS_CACHE_TTL_SECONDS = 3600
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/token_not_issued_here_either")
+oauth3_scheme = OAuth2PasswordBearer(tokenUrl="auth/token_not_issued_here_either")
 async def fetch_jwks_for_user_service(settings: Settings) -> Dict[str, Any]:
     global _jwks_cache_user, _jwks_cache_expiry_user # global değişkenleri kullan
     # ... (ticket_service/auth.py'deki fetch_jwks_for_ticket_service ile aynı mantık, sadece print loglarında "UserService" yazabilir) ...
