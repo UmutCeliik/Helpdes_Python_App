@@ -40,7 +40,7 @@ spec:
       echo "SCA Scan starting for service type: $SERVICE_TYPE"
       if [ "$SERVICE_TYPE" = "frontend" ]; then
         echo "Running Node.js SCA Scan..."
-        npm ci
+        npm install
         npm audit --audit-level=high || (echo "npm audit found vulnerabilities" && exit 1)
       else
         echo "Running Python SCA Scan..."
