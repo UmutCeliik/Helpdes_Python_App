@@ -33,13 +33,12 @@ jobs:
       targetType: 'inline'
       script: |
         echo "Preparing SCA manifest for service: $(serviceName)..."
-        # Servis türüne göre tarayıcı imajını ve komutunu belirliyoruz.
         if [[ "$(serviceName)" == "frontend" ]]; then
           SCANNER_IMAGE="node:20-alpine"
-          SCAN_COMMAND="npm ci && npm audit --audit-level=high"
+          SERVICE_TYPE="frontend"
         else
           SCANNER_IMAGE="python:3.11-slim"
-          SCAN_COMMAND="pip install -r requirements.txt pip-audit && pip-audit -r requirements.txt --fail-on HIGH"
+          SERVICE_TYPE="backend"
         fi
         
         safePodSuffix=$(echo "$(serviceName)" | sed 's/_/-/g')
@@ -48,15 +47,14 @@ jobs:
 
         cp templates/sca-pod-template.yaml "$(kanikoFinalFile)-sca-$(serviceName)"
         
-        # SCA pod şablonundaki yer tutucuları dolduruyoruz
+        # 'sed' komutlarımız artık çok daha basit ve güvenilir.
         sed -i "s|__POD_NAME__|$scaPodName|g" "$(kanikoFinalFile)-sca-$(serviceName)"
         sed -i "s|__CONTEXT__|$(gitRepoUrl)|g" "$(kanikoFinalFile)-sca-$(serviceName)"
         sed -i "s|__CONTEXT_SUB_PATH__|$(serviceName)|g" "$(kanikoFinalFile)-sca-$(serviceName)"
         sed -i "s|__AZP_TOKEN__|$(AZP_TOKEN)|g" "$(kanikoFinalFile)-sca-$(serviceName)"
         sed -i "s|__SCANNER_IMAGE__|$SCANNER_IMAGE|g" "$(kanikoFinalFile)-sca-$(serviceName)"
-        # SCAN_COMMAND'ı sed ile değiştirirken özel karakterlerden kaçınmak için geçici dosya kullanmak daha güvenli
-        echo "$SCAN_COMMAND" > scan_command.txt
-        sed -i -e "/__SCAN_COMMAND__/r scan_command.txt" -e "/__SCAN_COMMAND__/d" "$(kanikoFinalFile)-sca-$(serviceName)"
+        sed -i "s|__SERVICE_TYPE__|$SERVICE_TYPE|g" "$(kanikoFinalFile)-sca-$(serviceName)"
+
 
   - task: Kubernetes@1
     displayName: '1b. Apply & Run SCA Pod'
