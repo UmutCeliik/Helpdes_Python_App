@@ -15,12 +15,14 @@ jobs:
 - job: Build_${{ parameters.serviceName }}
   displayName: 'Build Image for ${{ parameters.serviceName }}'
   dependsOn: ${{ parameters.dependsOn }}
-  condition: ${{ parameters.condition }}
-  
+  condition: ${{ parameters.condition }}  
   timeoutInMinutes: 30 
 
   variables:
     serviceName: ${{ parameters.serviceName }} 
+
+  env:
+    AZP_TOKEN: $(System.AccessToken)
   
   steps:
   # ===================================================================
@@ -29,8 +31,6 @@ jobs:
   - task: Bash@3
     name: PrepareScaManifest
     displayName: '1a. Prepare SCA Pod Manifest'
-    env:
-      AZP_TOKEN: $(System.AccessToken)
     inputs:
       targetType: 'inline'
       script: |
@@ -49,12 +49,14 @@ jobs:
 
         cp templates/sca-pod-template.yaml "$(kanikoFinalFile)-sca-$(serviceName)"
         
+        # Script artık iş seviyesindeki $AZP_TOKEN'ı sorunsuzca kullanabilir.
         sed -i "s|__POD_NAME__|$scaPodName|g" "$(kanikoFinalFile)-sca-$(serviceName)"
         sed -i "s|__CONTEXT__|$(gitRepoUrl)|g" "$(kanikoFinalFile)-sca-$(serviceName)"
         sed -i "s|__CONTEXT_SUB_PATH__|$(serviceName)|g" "$(kanikoFinalFile)-sca-$(serviceName)"
-        sed -i "s|__AZP_TOKEN__|$(AZP_TOKEN)|g" "$(kanikoFinalFile)-sca-$(serviceName)"
+        sed -i "s|__AZP_TOKEN__|$AZP_TOKEN|g" "$(kanikoFinalFile)-sca-$(serviceName)"
         sed -i "s|__SCANNER_IMAGE__|$SCANNER_IMAGE|g" "$(kanikoFinalFile)-sca-$(serviceName)"
         sed -i "s|__SERVICE_TYPE__|$SERVICE_TYPE|g" "$(kanikoFinalFile)-sca-$(serviceName)"
+
 
   - task: Kubernetes@1
     displayName: '1b. Apply & Run SCA Pod'
@@ -119,22 +121,21 @@ jobs:
   - task: Bash@3
     name: PrepareKanikoManifest
     displayName: '2a. Prepare Kaniko Pod Manifest'
-    env:
-      AZP_TOKEN: $(System.AccessToken)
     inputs:
       targetType: 'inline'
       script: |
-        # Bu adımın içeriği bir önceki çalışan versiyonla aynı.
         safePodSuffix=$(echo "$(serviceName)" | sed 's/_/-/g')
-        finalPodName="kaniko-build-$(imageTag)-$safePodSuffix"
-        echo "##vso[task.setvariable variable=kanikoPodName]$finalPodName"
-        #... (sed komutları önceki gibi)
+        kanikoPodName="kaniko-build-$(imageTag)-$safePodSuffix"
+        echo "##vso[task.setvariable variable=kanikoPodName]$kanikoPodName"
+        
         cp "$(kanikoTemplateFile)" "$(kanikoFinalFile)-kaniko-$(serviceName)"
-        sed -i "s|__POD_NAME__|$finalPodName|g" "$(kanikoFinalFile)-kaniko-$(serviceName)"
+        
+        sed -i "s|__POD_NAME__|$kanikoPodName|g" "$(kanikoFinalFile)-kaniko-$(serviceName)"
         sed -i "s|__CONTEXT__|$(gitRepoUrl)|g" "$(kanikoFinalFile)-kaniko-$(serviceName)"
         sed -i "s|__CONTEXT_SUB_PATH__|$(serviceName)|g" "$(kanikoFinalFile)-kaniko-$(serviceName)"
         sed -i "s|__DESTINATION_TAG__|$(harborRepo)/$(serviceName):$(imageTag)|g" "$(kanikoFinalFile)-kaniko-$(serviceName)"
-        sed -i "s|__AZP_TOKEN__|$(AZP_TOKEN)|g" "$(kanikoFinalFile)-kaniko-$(serviceName)"
+        sed -i "s|__AZP_TOKEN__|$AZP_TOKEN|g" "$(kanikoFinalFile)-kaniko-$(serviceName)"
+
 
   - task: Kubernetes@1
     displayName: '2b. Apply & Run Kaniko Pod'
