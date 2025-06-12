@@ -2,44 +2,75 @@
 # --- 1. AŞAMA: Build Aşaması ---
 FROM node:20-alpine AS build
 
+# Debug: WORKDIR öncesi kök dizini (build context'i) göster
+RUN echo "--- DEBUG (Dockerfile): Before WORKDIR /app. Current dir: $(pwd) ---"
+RUN ls -lA 
+RUN echo "-------------------------------------------------------------------"
+
 # Çalışma dizinini /app olarak ayarlıyoruz
 WORKDIR /app
 
+# Debug: WORKDIR sonrası /app dizinini göster
+RUN echo "--- DEBUG (Dockerfile): After WORKDIR /app. Current dir: $(pwd) ---"
+RUN ls -lA 
+RUN echo "--------------------------------------------------------------------"
+
 # package.json ve package-lock.json dosyalarını kopyalıyoruz
-# Docker'ın build context'i (docker-compose.yml'deki 'frontend' klasörü)
-# burası olduğu için, doğrudan bu klasörün içindeki dosya adlarını kullanıyoruz.
-# Yani: Helpdes_Python_App-main/frontend/package*.json dosyalarını
-# konteyner içindeki /app dizinine kopyala.
 COPY package*.json ./
+
+# Debug: COPY package*.json sonrası /app dizinini göster
+RUN echo "--- DEBUG (Dockerfile): After COPY package*.json ---"
+RUN ls -lA 
+RUN echo "----------------------------------------------------"
 
 # Bağımlılıkları kuruyoruz
 RUN npm install
 
-# Tüm proje dosyalarını (frontend klasörünün tamamını) /app dizinine kopyala
-# '.' mevcut çalışma dizinini (şu anda /app) ve build context'inin kökünü (frontend klasörü) temsil eder.
-# Yani: Helpdes_Python_App-main/frontend/ dizinindeki tüm içeriği
-# konteyner içindeki /app dizinine kopyala.
-COPY . .
+# Debug: npm install sonrası /app dizinini göster
+RUN echo "--- DEBUG (Dockerfile): After npm install ---"
+RUN ls -lA 
+RUN echo "---------------------------------------------"
+
+# Tüm proje dosyalarını (Dockerfile'ın bulunduğu dizindeki her şeyi) kopyalıyoruz
+COPY . . 
+
+# Debug: COPY . . sonrası /app dizinini göster
+RUN echo "--- DEBUG (Dockerfile): After COPY . . ---"
+RUN ls -lA 
+RUN echo "------------------------------------------"
 
 # Vue projesini derleyip /app/dist klasörüne statik dosyaları oluşturuyoruz
 RUN npm run build
 
+# Debug: npm run build sonrası /app dizinini göster
+RUN echo "--- DEBUG (Dockerfile): After npm run build ---"
+RUN ls -lA 
+RUN echo "-----------------------------------------------"
+
 # --- 2. AŞAMA: Serve Aşaması ---
-# Son imajımız için hafif bir Nginx web sunucusu kullanıyoruz
 FROM nginx:stable-alpine
+
+# Debug: İlk Serve aşaması. Current dir: $(pwd)
+RUN echo "--- DEBUG (Dockerfile): Serve Stage 1. Current dir: $(pwd) ---"
+RUN ls -lA
+RUN echo "-------------------------------------------------------------"
 
 # Build aşamasında oluşturduğumuz /app/dist klasörünün içindeki dosyaları
 # Nginx'in web root dizinine kopyalıyoruz
 COPY --from=build /app/dist /usr/share/nginx/html
 
-# Vue Router'ın History Modu'nda düzgün çalışması için Nginx konfigürasyonunu kopyalıyoruz
-# Yine, build context'i 'frontend' klasörü olduğu için, 'nginx.conf' o klasörün içindedir.
-# Yani: Helpdes_Python_App-main/frontend/nginx.conf dosyasını
-# konteyner içindeki /etc/nginx/conf.d/default.conf yoluna kopyala.
+# Debug: COPY --from=build sonrası Nginx root dizinini göster
+RUN echo "--- DEBUG (Dockerfile): After COPY --from=build to /usr/share/nginx/html ---"
+RUN ls -lA /usr/share/nginx/html
+RUN echo "--------------------------------------------------------------------------"
+
+# Nginx konfigürasyonunu kopyalıyoruz
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
-# Konteynerin 80 portunu dinleyeceğini belirtiyoruz
-EXPOSE 80
+# Debug: COPY nginx.conf sonrası Nginx conf dizinini göster
+RUN echo "--- DEBUG (Dockerfile): After COPY nginx.conf to /etc/nginx/conf.d ---"
+RUN ls -lA /etc/nginx/conf.d
+RUN echo "--------------------------------------------------------------------"
 
-# Nginx sunucusunu başlatıyoruz
+EXPOSE 80
 CMD ["nginx", "-g", "daemon off;"]
