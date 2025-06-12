@@ -40,7 +40,12 @@ spec:
       echo "Cloning repository..."
       CLONE_URL=$(echo $GIT_REPO_URL | sed "s,https://,https://$AZP_TOKEN@,")
       git clone $CLONE_URL /workspace/source
-      
+      echo "--- Contents of /workspace/source (Git Repo Root) ---"
+      ls -F /workspace/source
+      echo "--- Contents of /workspace/source/frontend ---"
+      ls -F /workspace/source/frontend
+      echo "----------------------------------------------------"
+
     volumeMounts:
     - name: workspace
       mountPath: /workspace
