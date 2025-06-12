@@ -25,6 +25,10 @@ spec:
       cd /workspace
       CLONE_URL=$(echo $GIT_REPO_URL | sed "s,https://,https://$AZP_TOKEN@,")
       git clone $CLONE_URL .
+
+      echo "--- DEBUG: Contents of /workspace after git-checkout ---"
+      ls -lR /workspace # /workspace altındaki her şeyi recursive listeler
+      echo "--------------------------------------------------------"
     volumeMounts:
     - name: workspace
       mountPath: /workspace
