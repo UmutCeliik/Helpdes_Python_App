@@ -18,18 +18,24 @@ pool:
   name: 'RKE2'
 
 variables:
+variables:
 - group: Redmine-Integration
-  harborRepo: 'harbor.cloudpro.com.tr/helpdesk' 
-  imageTag: '$(Build.BuildId)'
-  k8sNamespace: 'ado-agents'
-  gitRepoUrl: 'https://dev.azure.com/umutcelik0234/HelpDesk_App/_git/helpdesk-app-src'
-  kanikoTemplateFile: 'kaniko-pod-template.yaml'
-  kanikoFinalFile: '$(Build.ArtifactStagingDirectory)/kaniko-pod-final'
+- name: harborRepo
+  value: 'harbor.cloudpro.com.tr/helpdesk'
+- name: imageTag
+  value: '$(Build.BuildId)'
+- name: k8sNamespace
+  value: 'ado-agents'
+- name: gitRepoUrl
+  value: 'https://dev.azure.com/umutcelik0234/HelpDesk_App/_git/helpdesk-app-src'
+- name: kanikoTemplateFile
+  value: 'kaniko-pod-template.yaml'
+- name: kanikoFinalFile
+  value: '$(Build.ArtifactStagingDirectory)/kaniko-pod-final'
 
 stages:
 - stage: Build_Services
   displayName: 'Build and Push Service Images'
-  # 'resources' bloğu buradan kaldırıldı.
   jobs:
   - job: DetectChanges
     displayName: '1. Detect Changed Services'
