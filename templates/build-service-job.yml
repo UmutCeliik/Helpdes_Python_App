@@ -151,14 +151,14 @@ jobs:
         
         kubectl logs $(kanikoPodName) -n $(k8sNamespace) -c kaniko --follow
 
-  - task: Kubernetes@1
-    displayName: '2d. Cleanup Kaniko Pod'
-    condition: always()
-    inputs:
-      connectionType: 'None'
-      namespace: '$(k8sNamespace)'
-      command: 'delete'
-      arguments: 'pod/$(kanikoPodName) --ignore-not-found=true'
+  # - task: Kubernetes@1
+  #   displayName: '2d. Cleanup Kaniko Pod'
+  #   condition: always()
+  #   inputs:
+  #     connectionType: 'None'
+  #     namespace: '$(k8sNamespace)'
+  #     command: 'delete'
+  #     arguments: 'pod/$(kanikoPodName) --ignore-not-found=true'
 
   - task: Bash@3
     displayName: 'Update Redmine Issue'
