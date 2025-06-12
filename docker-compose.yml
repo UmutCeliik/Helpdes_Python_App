@@ -85,7 +85,7 @@ services:
   frontend:
     build:
       context: .
-      dockerfile: ./frontend/Dockerfile
+      dockerfile: ./frontend/Dockerfile.local
     container_name: helpdesk-frontend
     ports:
       - "5173:80"
@@ -93,7 +93,7 @@ services:
       - user_service
       - ticket_service
       - auth_service
-    networks: # <-- Bu zaten ağa dahildi
+    networks:
       - helpdesk-net
 
 # --- Ağ ve Volüm Tanımları ---
