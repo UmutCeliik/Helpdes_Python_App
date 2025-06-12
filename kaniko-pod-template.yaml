@@ -40,11 +40,9 @@ spec:
       echo "Cloning repository..."
       CLONE_URL=$(echo $GIT_REPO_URL | sed "s,https://,https://$AZP_TOKEN@,")
       git clone $CLONE_URL /workspace/source
-      echo "--- Contents of /workspace/source (Git Repo Root) ---"
-      ls -F /workspace/source
-      echo "--- Contents of /workspace/source/frontend ---"
-      ls -F /workspace/source/frontend
-      echo "----------------------------------------------------"
+      echo "--- DEBUG (Init Container): Contents of /workspace/source (Git Repo Root) ---"
+      ls -lR /workspace/source # /workspace/source altındaki her şeyi recursive listeler
+      echo "--------------------------------------------------------"
 
     volumeMounts:
     - name: workspace
@@ -54,12 +52,6 @@ spec:
   - name: kaniko
     image: gcr.io/kaniko-project/executor:latest
     args:
-      - |
-        set -e
-        echo "--- DEBUG: Contents of /workspace after git-checkout ---"
-        ls -lR /workspace # /workspace altındaki her şeyi recursive listeler
-        echo "--------------------------------------------------------"
-      
       - "--context=/workspace/source"
       - "--context-sub-path=__CONTEXT_SUB_PATH__"
       - "--dockerfile=/workspace/source/__CONTEXT_SUB_PATH__/Dockerfile"
