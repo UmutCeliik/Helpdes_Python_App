@@ -110,15 +110,31 @@ jobs:
     inputs:
       targetType: 'inline'
       script: |
+        # safePodSuffix=$(echo "$(serviceName)" | sed 's/_/-/g')
+        # kanikoPodName="kaniko-build-$(imageTag)-$safePodSuffix"
+        # echo "##vso[task.setvariable variable=kanikoPodName]$kanikoPodName"
+        # cp "$(kanikoTemplateFile)" "$(kanikoFinalFile)-kaniko-$(serviceName)"
+        # sed -i "s|__POD_NAME__|$kanikoPodName|g" "$(kanikoFinalFile)-kaniko-$(serviceName)"
+        # sed -i "s|__CONTEXT__|$(gitRepoUrl)|g" "$(kanikoFinalFile)-kaniko-$(serviceName)"
+        # sed -i "s|__CONTEXT_SUB_PATH__|$(serviceName)|g" "$(kanikoFinalFile)-kaniko-$(serviceName)"
+        # sed -i "s|__DESTINATION_TAG__|$(harborRepo)/$(serviceName):$(imageTag)|g" "$(kanikoFinalFile)-kaniko-$(serviceName)"
+        # sed -i "s|__AZP_TOKEN__|$AZP_TOKEN|g" "$(kanikoFinalFile)-kaniko-$(serviceName)"
         safePodSuffix=$(echo "$(serviceName)" | sed 's/_/-/g')
         kanikoPodName="kaniko-build-$(imageTag)-$safePodSuffix"
         echo "##vso[task.setvariable variable=kanikoPodName]$kanikoPodName"
+
         cp "$(kanikoTemplateFile)" "$(kanikoFinalFile)-kaniko-$(serviceName)"
+
         sed -i "s|__POD_NAME__|$kanikoPodName|g" "$(kanikoFinalFile)-kaniko-$(serviceName)"
-        sed -i "s|__CONTEXT__|$(gitRepoUrl)|g" "$(kanikoFinalFile)-kaniko-$(serviceName)"
-        sed -i "s|__CONTEXT_SUB_PATH__|$(serviceName)|g" "$(kanikoFinalFile)-kaniko-$(serviceName)"
         sed -i "s|__DESTINATION_TAG__|$(harborRepo)/$(serviceName):$(imageTag)|g" "$(kanikoFinalFile)-kaniko-$(serviceName)"
         sed -i "s|__AZP_TOKEN__|$AZP_TOKEN|g" "$(kanikoFinalFile)-kaniko-$(serviceName)"
+        
+        # Git repo URL'sini initContainer için doldur
+        sed -i "s|__CONTEXT_URL__|$(gitRepoUrl)|g" "$(kanikoFinalFile)-kaniko-$(serviceName)"
+
+        # Kaniko'nun Dockerfile yolunda kullanılacak alt dizin (frontend)
+        # Bu, kaniko-pod-template.yaml'daki `--dockerfile=/workspace/source/__CONTEXT_SUB_PATH__/Dockerfile` kısmını dolduracak.
+        sed -i "s|__CONTEXT_SUB_PATH__|$(serviceName)|g" "$(kanikoFinalFile)-kaniko-$(serviceName)"
 
   - task: Kubernetes@1
     displayName: '2b. Apply & Run Kaniko Pod'

@@ -84,8 +84,8 @@ services:
   # --- Frontend Servisi ---
   frontend:
     build:
-      context: ./frontend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: ./frontend/Dockerfile
     container_name: helpdesk-frontend
     ports:
       - "5173:80"

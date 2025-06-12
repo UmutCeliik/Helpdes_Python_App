@@ -16,12 +16,15 @@ RUN ls -lA
 RUN echo "--------------------------------------------------------------------"
 
 # package.json ve package-lock.json dosyalarını kopyalıyoruz
-COPY package*.json ./
+# Kaniko'nun build context'i /workspace/source (proje kökü) olacağı için
+# ve Dockerfile /workspace/source/frontend/Dockerfile olduğu için,
+# dosyaları context'in kökünden, tam yollarıyla kopyalamalıyız.
+COPY frontend/package*.json ./
 
 # Debug: COPY package*.json sonrası /app dizinini göster
-RUN echo "--- DEBUG (Dockerfile): After COPY package*.json ---"
+RUN echo "--- DEBUG (Dockerfile): After COPY frontend/package*.json ---"
 RUN ls -lA 
-RUN echo "----------------------------------------------------"
+RUN echo "-----------------------------------------------------------"
 
 # Bağımlılıkları kuruyoruz
 RUN npm install
@@ -31,13 +34,13 @@ RUN echo "--- DEBUG (Dockerfile): After npm install ---"
 RUN ls -lA 
 RUN echo "---------------------------------------------"
 
-# Tüm proje dosyalarını (Dockerfile'ın bulunduğu dizindeki her şeyi) kopyalıyoruz
-COPY . . 
+# Tüm proje dosyalarını kopyalıyoruz (frontend klasörünün tamamını)
+COPY frontend/ .
 
-# Debug: COPY . . sonrası /app dizinini göster
-RUN echo "--- DEBUG (Dockerfile): After COPY . . ---"
+# Debug: COPY frontend/ . sonrası /app dizinini göster
+RUN echo "--- DEBUG (Dockerfile): After COPY frontend/ . ---"
 RUN ls -lA 
-RUN echo "------------------------------------------"
+RUN echo "------------------------------------------------"
 
 # Vue projesini derleyip /app/dist klasörüne statik dosyaları oluşturuyoruz
 RUN npm run build
@@ -65,12 +68,12 @@ RUN ls -lA /usr/share/nginx/html
 RUN echo "--------------------------------------------------------------------------"
 
 # Nginx konfigürasyonunu kopyalıyoruz
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY frontend/nginx.conf /etc/nginx/conf.d/default.conf
 
 # Debug: COPY nginx.conf sonrası Nginx conf dizinini göster
-RUN echo "--- DEBUG (Dockerfile): After COPY nginx.conf to /etc/nginx/conf.d ---"
+RUN echo "--- DEBUG (Dockerfile): After COPY frontend/nginx.conf to /etc/nginx/conf.d ---"
 RUN ls -lA /etc/nginx/conf.d
-RUN echo "--------------------------------------------------------------------"
+RUN echo "-----------------------------------------------------------------------------"
 
 EXPOSE 80
 CMD ["nginx", "-g", "daemon off;"]
