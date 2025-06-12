@@ -54,13 +54,17 @@ spec:
   - name: kaniko
     image: gcr.io/kaniko-project/executor:latest
     args:
+      - |
+        set -e
+        echo "--- DEBUG: Contents of /workspace after git-checkout ---"
+        ls -lR /workspace # /workspace altındaki her şeyi recursive listeler
+        echo "--------------------------------------------------------"
+      
       - "--context=/workspace/source"
       - "--context-sub-path=__CONTEXT_SUB_PATH__"
       - "--dockerfile=/workspace/source/__CONTEXT_SUB_PATH__/Dockerfile"
       - "--destination=__DESTINATION_TAG__"
       - "--cleanup"
-      # YENİ EKLENEN SATIR:
-      # Bu bayrak, Kaniko'nun Harbor'a bağlanırken SSL sertifikasını doğrulamamasını sağlar.
       - "--skip-tls-verify"
     
     volumeMounts:
