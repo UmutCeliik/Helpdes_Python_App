@@ -26,7 +26,7 @@ app = FastAPI(
     version="1.2.0",
 )
 
-USER_SERVICE_URL = "http://localhost:8001" 
+USER_SERVICE_URL = "http://user_service:8000" 
 
 # CORS Ayarları
 app.add_middleware(
