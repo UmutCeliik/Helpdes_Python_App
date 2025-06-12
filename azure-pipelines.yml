@@ -18,6 +18,7 @@ pool:
   name: 'RKE2'
 
 variables:
+- group: Redmine-Integration
   harborRepo: 'harbor.cloudpro.com.tr/helpdesk' 
   imageTag: '$(Build.BuildId)'
   k8sNamespace: 'ado-agents'
