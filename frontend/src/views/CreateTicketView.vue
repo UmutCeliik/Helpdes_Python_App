@@ -2,7 +2,7 @@
   <v-container fluid>
     <v-row justify="center">
       <v-col cols="12" md="8" lg="6">
-         <h1 class="text-h5 font-weight-medium mb-6 text-center">Yeni Destek Bileti Oluştur..</h1>
+         <h1 class="text-h5 font-weight-medium mb-6 text-center">Yeni Destek Bileti Oluştur.</h1>
          <v-card elevation="2">
            <v-card-text>
              <v-form @submit.prevent="handleCreateTicket" ref="createForm">
