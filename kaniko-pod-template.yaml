@@ -50,7 +50,7 @@ spec:
     image: gcr.io/kaniko-project/executor:latest
     args:
       - "--context=/workspace/source"
-      # - "--context-sub-path=__CONTEXT_SUB_PATH__"
+      - "--context-sub-path=__CONTEXT_SUB_PATH__"
       - "--dockerfile=/workspace/source/__CONTEXT_SUB_PATH__/Dockerfile"
       - "--destination=__DESTINATION_TAG__"
       - "--cleanup"
