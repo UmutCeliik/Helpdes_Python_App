@@ -18,7 +18,6 @@ pool:
   name: 'RKE2'
 
 variables:
-variables:
 - group: Redmine-Integration
 - name: harborRepo
   value: 'harbor.cloudpro.com.tr/helpdesk'
