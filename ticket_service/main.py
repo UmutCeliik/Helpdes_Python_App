@@ -41,6 +41,14 @@ app.add_middleware(
 async def read_root():
     return {"message": "Ticket Service çalışıyor."}
 
+@app.get("/healthz", status_code=status.HTTP_200_OK, tags=["Health Check"])
+def health_check():
+    """
+    Kubernetes probları için basit sağlık kontrolü. 
+    Hiçbir dış bağımlılığı yoktur.
+    """
+    return {"status": "healthy"}
+
 @app.post("/tickets/", response_model=models.Ticket, status_code=status.HTTP_201_CREATED, tags=["Tickets"])
 async def create_ticket(
     ticket: models.TicketCreate,
