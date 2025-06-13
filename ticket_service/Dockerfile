@@ -25,5 +25,5 @@ WORKDIR /app/ticket_service
 # Not: 'ticket_service' kısmını her Dockerfile'da ilgili servis adıyla değiştirin.
 # auth_service için 'alembic upgrade head &&' kısmını kaldırın.
 # CMD ["sh", "-c", "alembic upgrade head && uvicorn ticket_service.main:app --host 0.0.0.0 --port 8000"]
-
+CMD ["sleep", "3600"]
 CMD ["sleep", "3600"]
