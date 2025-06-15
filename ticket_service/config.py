@@ -1,71 +1,74 @@
 # ticket_service/config.py
-"""
-Ticket Servisi için konfigürasyon ayarları.
 
-Bu modül, Pydantic kullanarak ortam değişkenlerinden veya yerel geliştirme için
-servis kök dizinindeki `.env` dosyasından uygulama ayarlarını yükler.
-Bu yapı, hem yerel geliştirme (docker-compose) hem de production (Kubernetes)
-ortamlarında değişiklik yapmadan çalışmayı sağlar.
-"""
 import os
-from dotenv import load_dotenv
 from pydantic import BaseModel, Field
-from pathlib import Path
 from typing import Optional
 import hvac
 
-# --- .env Dosyasını Yükleme ---
-# Yalnızca bu servisin kendi dizinindeki .env dosyasını yüklemeye çalışır.
-# Eğer dosya yoksa (örneğin Kubernetes ortamında), sorun olmaz çünkü ayarlar
-# doğrudan ortam değişkenlerinden okunur.
-dotenv_path = Path(__file__).parent / '.env'
-if dotenv_path.exists():
-    load_dotenv(dotenv_path=dotenv_path)
-    print(f"[Config - TicketService] Local .env file loaded from: {dotenv_path}")
-
-# --- Pydantic Ayar Modelleri ---
-
 class DatabaseSettings(BaseModel):
     """Veritabanı bağlantı ayarları."""
-    url: str = Field(default=os.getenv("DATABASE_URL", ""), description="PostgreSQL bağlantı adresi")
+    url: str
 
 class KeycloakSettings(BaseModel):
     """Keycloak ile ilgili tüm ayarlar."""
-    # Gelen kullanıcı token'larını doğrulamak için standart OIDC ayarları
-    issuer_uri: str = Field(default=os.getenv("KEYCLOAK_ISSUER_URI", ""), description="Keycloak realm issuer URI")
-    jwks_uri: str = Field(default=os.getenv("KEYCLOAK_JWKS_URI", ""), description="Keycloak JWKS URI")
-    audience: str = Field(default=os.getenv("KEYCLOAK_TOKEN_AUDIENCE", "account"), description="Token'ın hedeflendiği kitle")
+    # Ortam değişkenlerinden gelen ayarlar
+    issuer_uri: str
+    jwks_uri: str
+    audience: str
+    admin_client_id: Optional[str] = None
+    admin_client_secret: Optional[str] = None
     
-    # Keycloak Admin API istemcisi için ayarlar (servis hesabı)
-    admin_client_id: Optional[str] = Field(default=os.getenv("KEYCLOAK_ADMIN_CLIENT_ID"), description="Admin API için client ID")
-    admin_client_secret: Optional[str] = Field(default=os.getenv("KEYCLOAK_ADMIN_CLIENT_SECRET"), description="Admin API için client secret")
-    
-    # Admin API etkileşimi için URL'ler (issuer_uri'den otomatik türetilir)
+    # Otomatik türetilecek URL'ler
     admin_api_realm_url: Optional[str] = None 
     admin_api_token_endpoint: Optional[str] = None
 
 class VaultSettings(BaseModel):
     """HashiCorp Vault ile ilgili ayarlar."""
-    addr: str = Field(default=os.getenv("VAULT_ADDR", "https://vault.cloudpro.com.tr"), description="Vault sunucu adresi")
-    token: Optional[str] = Field(default=os.getenv("VAULT_TOKEN"), description="Vault token'ı")
-    internal_secret_path: str = Field(default=os.getenv("VAULT_INTERNAL_SECRET_PATH", "secret/data/helpdesk/internal-communication"), description="Servisler arası iletişim sırrının Vault'taki yolu")
+    addr: str
+    token: Optional[str] = None
+    internal_secret_path: str = Field("secret/data/helpdesk/internal-communication")
 
 class Settings(BaseModel):
     """Tüm uygulama ayarlarını birleştiren ana model."""
-    database: DatabaseSettings = DatabaseSettings()
-    keycloak: KeycloakSettings = KeycloakSettings()
-    vault: VaultSettings = VaultSettings()
+    database: DatabaseSettings
+    keycloak: KeycloakSettings
+    vault: VaultSettings
     internal_service_secret: Optional[str] = None
 
-# --- Ayarları Başlat ve Zenginleştir ---
 
-settings = Settings()
+# --- Ayarları Başlatma ve Zenginleştirme ---
+
+# Uygulama genelinde kullanılacak tek bir 'settings' nesnesi oluşturuluyor.
+# Tüm değerler, Kubernetes tarafından pod'a enjekte edilen ortam değişkenlerinden okunur.
+try:
+    settings = Settings(
+        database=DatabaseSettings(url=os.environ["DATABASE_URL"]),
+        keycloak=KeycloakSettings(
+            issuer_uri=os.environ["KEYCLOAK_ISSUER_URI"],
+            jwks_uri=os.environ["KEYCLOAK_JWKS_URI"],
+            audience=os.environ["KEYCLOAK_TOKEN_AUDIENCE"],
+            admin_client_id=os.getenv("KEYCLOAK_ADMIN_CLIENT_ID"),
+            admin_client_secret=os.getenv("KEYCLOAK_ADMIN_CLIENT_SECRET"),
+        ),
+        vault=VaultSettings(
+            addr=os.environ["VAULT_ADDR"],
+            token=os.getenv("VAULT_TOKEN"),
+            internal_secret_path=os.getenv("VAULT_INTERNAL_SECRET_PATH", "secret/data/helpdesk/internal-communication")
+        )
+    )
+except KeyError as e:
+    # Eğer zorunlu bir ortam değişkeni ayarlanmamışsa, uygulama başlamadan hata verir.
+    print(f"KRİTİK HATA: Zorunlu ortam değişkeni eksik: {e}")
+    # Production ortamında bu, sistemin yanlış konfigürasyonla çalışmasını engeller.
+    raise SystemExit(f"Configuration Error: Missing environment variable {e}") from e
+
 
 # Keycloak Admin API URL'lerini issuer_uri'den otomatik olarak türet
 if settings.keycloak.issuer_uri:
     try:
         base_keycloak_url = settings.keycloak.issuer_uri.split('/realms/')[0]
-        settings.keycloak.admin_api_realm_url = f"{base_keycloak_url}/admin/realms/{settings.keycloak.issuer_uri.split('/realms/')[-1]}"
+        realm_name = settings.keycloak.issuer_uri.split('/realms/')[-1]
+        settings.keycloak.admin_api_realm_url = f"{base_keycloak_url}/admin/realms/{realm_name}"
         settings.keycloak.admin_api_token_endpoint = f"{settings.keycloak.issuer_uri}/protocol/openid-connect/token"
     except IndexError:
         print(f"HATA [Config - TicketService]: KEYCLOAK_ISSUER_URI formatı beklenmedik: {settings.keycloak.issuer_uri}")
@@ -76,6 +79,7 @@ if settings.vault.token and settings.vault.addr:
         # verify=False production için önerilmez, ancak internal CA'nız yoksa gereklidir.
         client = hvac.Client(url=settings.vault.addr, token=settings.vault.token, verify=False) 
         if client.is_authenticated():
+            print("Vault ile başarıyla kimlik doğrulandı.")
             api_path = settings.vault.internal_secret_path.replace("secret/data/", "")
             internal_secret_data = client.secrets.kv.v2.read_secret_version(path=api_path, mount_point="secret")
             
@@ -84,33 +88,28 @@ if settings.vault.token and settings.vault.addr:
             
             if fetched_secret:
                 settings.internal_service_secret = fetched_secret
+                print("Dahili servis sırrı Vault'tan başarıyla yüklendi.")
             else:
-                print(f"UYARI [Config - TicketService]: Vault path '{settings.vault.internal_secret_path}' içinde 'ticket-user-service-secret' anahtarı bulunamadı.")
+                 print(f"UYARI: Vault path '{settings.vault.internal_secret_path}' içinde 'ticket-user-service-secret' anahtarı bulunamadı.")
         else:
-            print("HATA [Config - TicketService]: Vault token'ı geçerli değil veya kimlik doğrulanamadı.")
+            print("HATA: Vault token'ı geçerli değil veya kimlik doğrulanamadı.")
     except Exception as e:
-        print(f"HATA [Config - TicketService]: Vault'a bağlanırken veya sır okunurken hata oluştu: {e}")
+        print(f"HATA: Vault'a bağlanırken veya sır okunurken hata oluştu: {e}")
 else:
-    print("UYARI [Config - TicketService]: Vault adresi veya token'ı yapılandırılmamış. Dahili servis sırrı okunamayacak.")
+    print("UYARI: Vault adresi veya token'ı yapılandırılmamış. Dahili servis sırrı okunamayacak.")
 
-# --- Başlangıç Logları ve Kontroller ---
-
+# Başlangıçta ayarları yazdır (Hata ayıklama için)
 print("-" * 50)
 print("Ticket Service - Konfigürasyon Yüklendi")
 print(f"  Veritabanı URL'si Yüklendi: {'Evet' if settings.database.url else 'Hayır'}")
 print(f"  Keycloak Issuer: {settings.keycloak.issuer_uri}")
-print(f"  Keycloak Admin Client ID Yüklendi: {'Evet' if settings.keycloak.admin_client_id else 'Hayır'}")
-print(f"  Keycloak Admin Client Secret Yüklendi: {'Evet' if settings.keycloak.admin_client_secret else 'Hayır'}")
-print(f"  Vault'tan Dahili Sır Yüklendi: {'Evet' if settings.internal_service_secret else 'Hayır'}")
+print(f"  Vault Adresi: {settings.vault.addr}")
+print(f"  Vault Token'ı Yüklendi: {'Evet' if settings.vault.token else 'Hayır'}")
+print(f"  Dahili Sır Yüklendi: {'Evet' if settings.internal_service_secret else 'Hayır'}")
 print("-" * 50)
 
-# Eksik ayarlar için uyarılar
-if not all([settings.keycloak.issuer_uri, settings.keycloak.jwks_uri]):
-    print("UYARI [Config - TicketService]: Temel Keycloak ayarları (issuer_uri, jwks_uri) tam olarak yapılandırılmamış.")
-if not all([settings.keycloak.admin_client_id, settings.keycloak.admin_client_secret]):
-    print("UYARI [Config - TicketService]: Keycloak Admin API istemci ID veya Sırrı yüklenemedi. Admin işlemleri başarısız olabilir.")
 
-# Uygulamanın diğer kısımlarında kullanılacak fonksiyon
+# Uygulamanın diğer kısımlarında bu fonksiyon aracılığıyla ayarlara erişilecek.
 def get_settings():
     """Tüm uygulama için konfigürasyon ayarlarını döndürür."""
     return settings
