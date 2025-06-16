@@ -6,9 +6,6 @@ FROM node:20-alpine AS build
 WORKDIR /app
 
 # package.json ve package-lock.json dosyalarını kopyalıyoruz
-# Kaniko'nun build context'i /workspace/source (proje kökü) olacağı için
-# ve Dockerfile /workspace/source/frontend/Dockerfile olduğu için,
-# dosyaları context'in kökünden, tam yollarıyla kopyalamalıyız.
 COPY frontend/package*.json ./
 
 # Bağımlılıkları kuruyoruz
@@ -27,11 +24,16 @@ FROM nginx:stable-alpine
 # Nginx'in web root dizinine kopyalıyoruz
 COPY --from=build /app/dist /usr/share/nginx/html
 
-# Nginx konfigürasyonunu kopyalıyoruz
-COPY frontend/nginx.conf /etc/nginx/templates/default.conf.template
+# Nginx'in varsayılan conf.d dizinindeki default.conf dosyasını kullanmak yerine,
+# kendi nginx.conf dosyamızı direkt Nginx'in ana konfigürasyon dizinine kopyalıyoruz
+# ve bunu şablon olarak işaretliyoruz.
+COPY frontend/nginx.conf /etc/nginx/nginx.conf.template
 
-RUN chown -R nginx:nginx /etc/nginx/templates
-RUN chmod +w /etc/nginx/templates/default.conf.template
+# RUN chown ve RUN chmod satırları burada artık gerekli değil, çünkü doğrudan /etc/nginx/conf.d'ye yazmayacağız
+# Nginx varsayılan olarak /etc/nginx/nginx.conf'u okur.
+# Daha önceki 'conf.d' dizini izin sorunları yaratıyordu.
 
 EXPOSE 80
-CMD ["/bin/sh", "-c", "envsubst < /etc/nginx/templates/default.conf.template > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"]
+# envsubst ile şablonu işleyip doğrudan /etc/nginx/nginx.conf'a yazıyoruz
+# Bu dosya genellikle Nginx container'ı içinde root tarafından yazılabilir.
+CMD ["/bin/sh", "-c", "envsubst < /etc/nginx/nginx.conf.template > /etc/nginx/nginx.conf && nginx -g 'daemon off;'"]
