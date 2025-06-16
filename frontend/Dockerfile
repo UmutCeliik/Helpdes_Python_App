@@ -30,5 +30,8 @@ COPY --from=build /app/dist /usr/share/nginx/html
 # Nginx konfigürasyonunu kopyalıyoruz
 COPY frontend/nginx.conf /etc/nginx/templates/default.conf.template
 
+RUN chown -R nginx:nginx /etc/nginx/templates
+RUN chmod +w /etc/nginx/templates/default.conf.template
+
 EXPOSE 80
 CMD ["/bin/sh", "-c", "envsubst < /etc/nginx/templates/default.conf.template > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"]
