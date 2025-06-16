@@ -12,10 +12,12 @@ server {
   scgi_temp_path        /tmp/scgi_temp;
 
   location / {
-    root   /usr/share/nginx/html;
-    index  index.html index.htm;
-    try_files $uri $uri/ /index.html; # Frontend uygulamanız için SPA yönlendirmesi
-  }
+  root   /usr/share/nginx/html;
+  index  index.html index.htm;
+  # $uri/ kısmını kaldırarak NGINX'in gereksiz yönlendirme yapmasını engelliyoruz.
+  # Bu, Vue gibi SPA (Single Page Application) uygulamaları için doğru ve standart kullanımdır.
+  try_files $uri /index.html; 
+}
 
   # Kubernetes sağlık kontrolü (liveness/readiness) propları için özel endpoint
   location /healthz {
