@@ -1,7 +1,7 @@
 import { ref, computed } from 'vue';
 import { defineStore } from 'pinia';
 import apiClient from '@/api/axios'; // Axios istemcimiz
-import { useAuthStore } from './auth'; // Gerekirse auth store'a erişim için
+import { useAuthStore } from './auth';
 
 // Ticket Service URL'si (Proje planına göre Port 8000)
 const TICKET_SERVICE_URL = 'http://127.0.0.1:8000';
@@ -21,41 +21,32 @@ export const useTicketStore = defineStore('tickets', () => {
   const error = ref(null); // Genel hata mesajı
   const createError = ref(null); // Bilet oluşturma hata mesajı
   const currentTicketDetails = ref(null); // Görüntülenen biletin detayları
-  const isLoadingDetails = ref(false);    // Detay sayfası için yüklenme durumu
-  const detailsError = ref(null);         // Detay sayfası için hata durumu
-  // --- Getters ---
-  // (Şimdilik basit getter'lar yeterli)
+  const isLoadingDetails = ref(false);      // Detay sayfası için yüklenme durumu
+  const detailsError = ref(null);           // Detay sayfası için hata durumu
 
   // --- Actions ---
 
-  /**
-   * Backend'den bilet listesini çeker ve state'i günceller.
-   * Dashboard için hem istatistikleri hesaplar hem de son biletleri alır.
-   * Bu fonksiyon hem dashboard hem de bilet listesi sayfası için kullanılabilir.
-   */
-  async function fetchTickets() { // fetchDashboardData'yı fetchTickets olarak yeniden adlandıralım
+  async function fetchTickets() {
     isLoading.value = true;
     error.value = null;
     const authStore = useAuthStore();
     if (!authStore.isAuthenticated) {
         error.value = 'Veri çekmek için giriş yapmalısınız.';
         isLoading.value = false;
-        tickets.value = []; // Hata durumunda listeyi temizle
+        tickets.value = [];
         recentTickets.value = [];
         dashboardStats.value = { open: 0, pending: 0, resolved: 0, total: 0 };
         return;
     }
 
     try {
-      // Backend'den tüm biletleri çek (limit olmadan veya yüksek bir limitle)
-      // Sıralama için backend'e parametre eklemek idealdir (?sort=-created_at)
-      const response = await apiClient.get(`${TICKET_SERVICE_URL}/tickets/`);
+      // URL'i Ingress path'ine göre göreceli olarak güncelliyoruz.
+      // axios baseURL'i sayesinde bu, https://helpdesk.cloudpro.com.tr/api/tickets/ olarak tamamlanacaktır.
+      const response = await apiClient.get('api/tickets/');
       const fetchedTickets = response.data;
 
-      // State'i güncelle
-      tickets.value = fetchedTickets; // Tam listeyi sakla
+      tickets.value = fetchedTickets;
 
-      // İstatistikleri Hesapla
       let openCount = 0;
       let pendingCount = 0;
       let resolvedCount = 0;
@@ -66,21 +57,19 @@ export const useTicketStore = defineStore('tickets', () => {
       });
       dashboardStats.value = { open: openCount, pending: pendingCount, resolved: resolvedCount, total: fetchedTickets.length };
 
-      // Son Biletleri Ayıkla (Dashboard için)
       recentTickets.value = fetchedTickets.slice(0, 5);
 
       console.log("Bilet verileri başarıyla çekildi.");
 
     } catch (err) {
       console.error('Biletleri çekerken hata:', err.response || err.message || err);
-      if (err.message && err.message.includes('Oturum sonlandı')) {
-           error.value = err.message;
-      } else if (err.response && err.response.data && err.response.data.detail) {
-          error.value = `Veri çekilemedi: ${err.response.data.detail}`;
+      // ... (hata yönetimi kodunuz aynı kalabilir) ...
+      if (err.response) {
+          error.value = `Veri çekilemedi: ${err.response.data.detail || err.response.statusText}`;
       } else {
-          error.value = 'Bilet verileri alınırken bir sorun oluştu.';
+          error.value = 'Bilet verileri alınırken bir ağ sorunu oluştu. Lütfen Ingress bağlantınızı kontrol edin.';
       }
-      tickets.value = []; // Hata durumunda temizle
+      tickets.value = [];
       recentTickets.value = [];
       dashboardStats.value = { open: 0, pending: 0, resolved: 0, total: 0 };
     } finally {
@@ -105,25 +94,20 @@ export const useTicketStore = defineStore('tickets', () => {
 
     try {
       console.log('Yeni bilet isteği gönderiliyor (store):', ticketData);
-      const response = await apiClient.post(`${TICKET_SERVICE_URL}/tickets/`, ticketData);
+      // URL'i Ingress path'ine göre göreceli olarak güncelliyoruz.
+      const response = await apiClient.post('api/tickets/', ticketData);
 
       if (response.status === 201) {
         console.log('Bilet başarıyla oluşturuldu (store):', response.data);
-        
-        // --- YENİ EKLENEN KISIM ---
-        // Backend'den dönen yeni bileti alıyoruz
         const newTicket = response.data;
-        // Mevcut bilet listesinin EN BAŞINA bu yeni bileti ekliyoruz.
-        // unshift(), dizinin başına eleman ekler.
         tickets.value.unshift(newTicket);
-        // --- YENİ EKLENEN KISIM SONU ---
-
-        return true; // Başarılı
+        return true;
       } else {
         throw new Error(`Beklenmedik yanıt kodu: ${response.status}`);
       }
     } catch (err) {
       console.error('Bilet oluşturma hatası (store):', err.response || err);
+      // ... (hata yönetimi kodunuz aynı kalabilir) ...
       if (err.response) {
         if (err.response.status === 401) {
           createError.value = 'Oturumunuz geçersiz veya süresi dolmuş. Lütfen tekrar giriş yapın.';
@@ -145,7 +129,7 @@ export const useTicketStore = defineStore('tickets', () => {
   async function fetchTicketDetails(ticketId) {
     isLoadingDetails.value = true;
     detailsError.value = null;
-    currentTicketDetails.value = null; // Önceki veriyi temizle
+    currentTicketDetails.value = null;
 
     const authStore = useAuthStore();
     if (!authStore.isAuthenticated) {
@@ -156,7 +140,8 @@ export const useTicketStore = defineStore('tickets', () => {
 
     try {
       console.log(`Bilet detayları çekiliyor: ${ticketId}`);
-      const response = await apiClient.get(`${TICKET_SERVICE_URL}/tickets/${ticketId}`);
+      // URL'i Ingress path'ine göre göreceli olarak güncelliyoruz.
+      const response = await apiClient.get(`api/tickets/${ticketId}`);
       currentTicketDetails.value = response.data;
       console.log("Bilet detayları başarıyla çekildi:", response.data);
     } catch (err) {
@@ -169,19 +154,17 @@ export const useTicketStore = defineStore('tickets', () => {
 
   async function addComment(ticketId, commentData) {
     try {
-      const response = await apiClient.post(`${TICKET_SERVICE_URL}/tickets/${ticketId}/comments`, commentData);
+      // URL'i Ingress path'ine göre göreceli olarak güncelliyoruz.
+      const response = await apiClient.post(`api/tickets/${ticketId}/comments`, commentData);
       const newComment = response.data;
 
-      // Yorum başarılı bir şekilde eklendiğinde, mevcut bilet detaylarındaki
-      // yorumlar listesini anında güncelleyelim.
       if (currentTicketDetails.value && currentTicketDetails.value.comments) {
         currentTicketDetails.value.comments.push(newComment);
       }
-      return true; // Başarı durumunu döndür
+      return true;
     } catch (err) {
       console.error("Yorum eklenirken hata:", err.response || err);
-      // Hata yönetimi burada detaylandırılabilir.
-      return false; // Hata durumunu döndür
+      return false;
     }
   }
 
@@ -192,14 +175,14 @@ export const useTicketStore = defineStore('tickets', () => {
     });
 
     try {
-      const response = await apiClient.post(`${TICKET_SERVICE_URL}/tickets/${ticketId}/attachments`, formData, {
+      // URL'i Ingress path'ine göre göreceli olarak güncelliyoruz.
+      const response = await apiClient.post(`api/tickets/${ticketId}/attachments`, formData, {
         headers: {
           'Content-Type': 'multipart/form-data'
         }
       });
       const newAttachments = response.data;
 
-      // Başarılı yükleme sonrası mevcut biletin ekler listesini güncelle
       if (currentTicketDetails.value && currentTicketDetails.value.attachments) {
         currentTicketDetails.value.attachments.push(...newAttachments);
       }
@@ -216,11 +199,11 @@ export const useTicketStore = defineStore('tickets', () => {
     recentTickets,
     dashboardStats,
     isLoading,
-    isCreating, // Yeni state
+    isCreating,
     error,
-    createError, // Yeni state
-    fetchTickets, // Yeniden adlandırıldı
-    createTicket, // Yeni action
+    createError,
+    fetchTickets,
+    createTicket,
     currentTicketDetails,
     isLoadingDetails,
     detailsError,
