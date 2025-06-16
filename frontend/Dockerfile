@@ -38,4 +38,4 @@ COPY frontend/nginx.template /etc/nginx/nginx.template
 EXPOSE 80
 # Envsubst ile şablonu işleyip /tmp dizinine yazıyoruz
 # Sonra Nginx'i başlatıyoruz. Ana nginx.conf dosyası /tmp'deki bu dosyayı include edecek.
-CMD ["/bin/sh", "-c", "envsubst < /etc/nginx/nginx.template > /tmp/default.conf && nginx -g 'daemon off;'"]
+CMD ["/bin/sh", "-c", "envsubst '${VITE_KEYCLOAK_URL} ${VITE_KEYCLOAK_REALM} ${VITE_KEYCLOAK_CLIENT_ID} ${VITE_AUTH_SERVICE_URL} ${VITE_USER_SERVICE_URL} ${VITE_TICKET_SERVICE_URL}' < /etc/nginx/nginx.template > /tmp/default.conf && nginx -g 'daemon off;'"]
