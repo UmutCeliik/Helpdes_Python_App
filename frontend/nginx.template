@@ -1,10 +1,10 @@
 # frontend/nginx.template (Bu dosya envsubst tarafından işlenecek şablon)
 
 server {
-  listen 80;
+  listen 80 default_server; # <-- Bu sunucu bloğunun varsayılan olarak hizmet vermesini sağlar
+  server_name _;             # <-- Herhangi bir Host başlığını yakalamak için catch-all adı
 
   # Nginx'in ihtiyaç duyduğu tüm geçici/cache yollarını /tmp dizinine yönlendiriyoruz.
-  # Bu dizin genellikle container içinde her kullanıcı için yazılabilirdir.
   client_body_temp_path /tmp/client_temp;
   proxy_temp_path       /tmp/proxy_temp;
   fastcgi_temp_path     /tmp/fastcgi_temp;
@@ -14,7 +14,14 @@ server {
   location / {
     root   /usr/share/nginx/html;
     index  index.html index.htm;
-    try_files $uri $uri/ /index.html;
+    try_files $uri $uri/ /index.html; # Frontend uygulamanız için SPA yönlendirmesi
+  }
+
+  # Kubernetes sağlık kontrolü (liveness/readiness) propları için özel endpoint
+  location /healthz {
+    access_log off; # Sağlık kontrolü isteklerini loglamayın
+    return 200 'healthy'; # Her zaman 200 OK yanıtı döndürün
+    add_header Content-Type text/plain;
   }
 
   error_page   500 502 503 504  /50x.html;
@@ -22,7 +29,6 @@ server {
     root   /usr/share/nginx/html;
   }
 
-  # Bu blok, environment değişkenlerini statik HTML dosyasına enjekte edecek.
   location /env.js {
       add_header Content-Type application/javascript;
       return 200 "window.ENV_VARS = { VITE_KEYCLOAK_URL: \"$VITE_KEYCLOAK_URL\", VITE_KEYCLOAK_REALM: \"$VITE_KEYCLOAK_REALM\", VITE_KEYCLOAK_CLIENT_ID: \"$VITE_KEYCLOAK_CLIENT_ID\", VITE_AUTH_SERVICE_URL: \"$VITE_AUTH_SERVICE_URL\", VITE_USER_SERVICE_URL: \"$VITE_USER_SERVICE_URL\", VITE_TICKET_SERVICE_URL: \"$VITE_TICKET_SERVICE_URL\" };";
