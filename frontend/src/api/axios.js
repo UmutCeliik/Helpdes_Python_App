@@ -1,29 +1,17 @@
-// frontend/src/api/axios.js
-import axios from 'axios';
+// frontend/src/api/axios.js (NİHAİ ve DOĞRU HALİ)
 
-// Temel URL'leri burada tanımlayabiliriz veya boş bırakabiliriz
-// const API_BASE_URL = 'http://localhost:8000'; // Örnek
+import axios from 'axios';
 
 const apiClient = axios.create({
   // baseURL'i ayarlayarak tüm göreceli isteklerin doğru ana adrese gitmesini sağlıyoruz.
+  // Bu satır, localhost'a yapılan istekleri düzeltecektir.
   baseURL: '/',
   headers: {
     'Content-Type': 'application/json',
   }
 });
 
-apiClient.interceptors.request.use(
-  (config) => {
-    const { keycloak } = require('@/services/keycloak.service'); // veya import yolu nasılsa
-    if (keycloak && keycloak.authenticated && keycloak.token) {
-      config.headers['Authorization'] = `Bearer ${keycloak.token}`;
-    }
-    return config;
-  },
-  (error) => {
-    return Promise.reject(error);
-  }
-);
+// Not: Interceptor'larınızı buraya ekleyebilirsiniz veya main.js'de bırakabilirsiniz.
+// Kod tutarlılığı için onları main.js'de bırakmak daha iyidir.
 
-// Yapılandırılmış instance'ı export et
 export default apiClient;
