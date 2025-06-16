@@ -19,7 +19,13 @@ spec:
     emptyDir: {}
   - name: harbor-credentials-volume
     secret:
-      secretName: harbor-credentials
+      secretName: harbor-credentials # Harbor için kimlik bilgisi secret'ı
+      items:
+        - key: .dockerconfigjson
+          path: config.json
+  - name: dockerhub-credentials-volume # Docker Hub için yeni eklenen volume
+    secret:
+      secretName: docker-hub # Daha önce oluşturduğunuz Docker Hub secret'ının adı
       items:
         - key: .dockerconfigjson
           path: config.json
@@ -54,12 +60,18 @@ spec:
       - "--dockerfile=/workspace/source/__CONTEXT_SUB_PATH__/Dockerfile"
       - "--destination=__DESTINATION_TAG__"
       - "--cleanup"
-      - "--skip-tls-verify"
-    
+      - "--skip-tls-verify" # Bu bayrak hem çekme hem de itme için TLS doğrulamayı atlar.
+
     volumeMounts:
     - name: workspace
       mountPath: /workspace
     - name: harbor-credentials-volume
+      mountPath: /kaniko/.docker/ # Harbor kimlik bilgilerinin bağlandığı yol
+    - name: dockerhub-credentials-volume # Docker Hub kimlik bilgilerinin bağlandığı yol
       mountPath: /kaniko/.docker/
-      
+      readOnly: true # Bu volume'u salt okunur yapabiliriz, çünkü sadece okuma amaçlı kullanılacak.
+
+  imagePullSecrets: # Kaniko executor imajını çekmek için (isteğe bağlı ama iyi bir pratik)
+  - name: docker-hub # Docker Hub secret'ınızın adı
+
   restartPolicy: Never

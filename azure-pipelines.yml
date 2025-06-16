@@ -31,6 +31,8 @@ variables:
   value: 'kaniko-pod-template.yaml'
 - name: kanikoFinalFile
   value: '$(Build.ArtifactStagingDirectory)/kaniko-pod-final'
+- name: dockerRegistryServiceConnection
+  value: 'DockerHub'
 
 stages:
 - stage: Build_Services
