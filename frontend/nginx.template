@@ -1,0 +1,22 @@
+# frontend/nginx.template (Bu dosya envsubst tarafından işlenecek şablon)
+
+server {
+  listen 80;
+
+  location / {
+    root   /usr/share/nginx/html;
+    index  index.html index.htm;
+    try_files $uri $uri/ /index.html;
+  }
+
+  error_page   500 502 503 504  /50x.html;
+  location = /50x.html {
+    root   /usr/share/nginx/html;
+  }
+
+  # Bu blok, environment değişkenlerini statik HTML dosyasına enjekte edecek.
+  location /env.js {
+      add_header Content-Type application/javascript;
+      return 200 "window.ENV_VARS = { VITE_KEYCLOAK_URL: \"$VITE_KEYCLOAK_URL\", VITE_KEYCLOAK_REALM: \"$VITE_KEYCLOAK_REALM\", VITE_KEYCLOAK_CLIENT_ID: \"$VITE_KEYCLOAK_CLIENT_ID\", VITE_AUTH_SERVICE_URL: \"$VITE_AUTH_SERVICE_URL\", VITE_USER_SERVICE_URL: \"$VITE_USER_SERVICE_URL\", VITE_TICKET_SERVICE_URL: \"$VITE_TICKET_SERVICE_URL\" };";
+  }
+}

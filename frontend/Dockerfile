@@ -24,16 +24,13 @@ FROM nginx:stable-alpine
 # Nginx'in web root dizinine kopyalıyoruz
 COPY --from=build /app/dist /usr/share/nginx/html
 
-# Nginx'in varsayılan conf.d dizinindeki default.conf dosyasını kullanmak yerine,
-# kendi nginx.conf dosyamızı direkt Nginx'in ana konfigürasyon dizinine kopyalıyoruz
-# ve bunu şablon olarak işaretliyoruz.
-COPY frontend/nginx.conf /etc/nginx/nginx.conf.template
+# Ana Nginx konfigürasyon dosyamızı kopyalıyoruz
+COPY frontend/nginx.conf /etc/nginx/nginx.conf
 
-# RUN chown ve RUN chmod satırları burada artık gerekli değil, çünkü doğrudan /etc/nginx/conf.d'ye yazmayacağız
-# Nginx varsayılan olarak /etc/nginx/nginx.conf'u okur.
-# Daha önceki 'conf.d' dizini izin sorunları yaratıyordu.
+# Envsubst ile işlenecek uygulama konfigürasyon şablonunu kopyalıyoruz
+COPY frontend/nginx.template /etc/nginx/nginx.template
 
 EXPOSE 80
-# envsubst ile şablonu işleyip doğrudan /etc/nginx/nginx.conf'a yazıyoruz
-# Bu dosya genellikle Nginx container'ı içinde root tarafından yazılabilir.
-CMD ["/bin/sh", "-c", "envsubst < /etc/nginx/nginx.conf.template > /etc/nginx/nginx.conf && nginx -g 'daemon off;'"]
+# Envsubst ile şablonu işleyip /tmp dizinine yazıyoruz (genellikle yazılabilir bir dizin)
+# Sonra Nginx'i başlatıyoruz. Ana nginx.conf dosyası /tmp'deki bu dosyayı include edecek.
+CMD ["/bin/sh", "-c", "envsubst < /etc/nginx/nginx.template > /tmp/default.conf && nginx -g 'daemon off;'"]
