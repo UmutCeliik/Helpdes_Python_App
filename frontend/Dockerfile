@@ -20,19 +20,20 @@ RUN npm run build
 # --- 2. AŞAMA: Serve Aşaması ---
 FROM nginx:stable-alpine
 
+# Nginx'in varsayılan config dosyasını kaldırıyoruz.
+# Bu dosya genellikle /etc/nginx/conf.d/default.conf adresinde bulunur.
+# Bu adım, istenmeyen 301 yönlendirmelerini veya konfigürasyon çakışmalarını önleyecektir.
+RUN rm /etc/nginx/conf.d/default.conf || true # Hata vermemesi için || true ekledik
+
 # Build aşamasında oluşturduğumuz /app/dist klasörünün içindeki dosyaları
 # Nginx'in web root dizinine kopyalıyoruz
 COPY --from=build /app/dist /usr/share/nginx/html
 
-# Ana Nginx konfigürasyon dosyamızı kopyalıyoruz
+# Ana Nginx konfigürasyon dosyamızı kopyalıyoruz (/etc/nginx/nginx.conf)
 COPY frontend/nginx.conf /etc/nginx/nginx.conf
 
 # Envsubst ile işlenecek uygulama konfigürasyon şablonunu kopyalıyoruz
 COPY frontend/nginx.template /etc/nginx/nginx.template
-
-# Nginx'in geçici dizinlerini önceden oluşturma komutunu kaldırıyoruz
-# RUN mkdir -p /tmp/client_temp /tmp/proxy_temp ... ve chown satırını SİLİN.
-# Nginx'in kendisinin bu dizinleri /tmp altında oluşturmasına izin vereceğiz.
 
 EXPOSE 80
 # Envsubst ile şablonu işleyip /tmp dizinine yazıyoruz
