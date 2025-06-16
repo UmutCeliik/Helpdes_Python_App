@@ -5,11 +5,11 @@ server {
 
   # Nginx'in ihtiyaç duyduğu tüm geçici/cache yollarını /tmp dizinine yönlendiriyoruz.
   # Bu dizin genellikle container içinde her kullanıcı için yazılabilirdir.
-  client_body_temp_path /tmp/client_temp; # <-- Zaten ekliydi
-  proxy_temp_path       /tmp/proxy_temp;   # <-- YENİ EKLENEN SATIR
-  fastcgi_temp_path     /tmp/fastcgi_temp; # <-- YENİ EKLENEN SATIR
-  uwsgi_temp_path       /tmp/uwsgi_temp;   # <-- YENİ EKLENEN SATIR
-  scgi_temp_path        /tmp/scgi_temp;    # <-- YENİ EKLENEN SATIR
+  client_body_temp_path /tmp/client_temp;
+  proxy_temp_path       /tmp/proxy_temp;
+  fastcgi_temp_path     /tmp/fastcgi_temp;
+  uwsgi_temp_path       /tmp/uwsgi_temp;
+  scgi_temp_path        /tmp/scgi_temp;
 
   location / {
     root   /usr/share/nginx/html;
