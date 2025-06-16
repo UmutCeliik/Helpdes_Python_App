@@ -3,6 +3,10 @@
 server {
   listen 80;
 
+  # Nginx'in client body geçici dosyalarını /tmp dizinine yazmasını sağlıyoruz.
+  # Bu dizin genellikle container içinde her kullanıcı için yazılabilirdir.
+  client_body_temp_path /tmp/client_temp; # <-- YENİ EKLENEN SATIR
+
   location / {
     root   /usr/share/nginx/html;
     index  index.html index.htm;
