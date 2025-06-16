@@ -1,10 +1,12 @@
-# kaniko-pod-template.yaml - TLS Doğrulamasını Atlama
+# kaniko-pod-template.yaml
 
 apiVersion: v1
 kind: Pod
 metadata:
   name: __POD_NAME__
 spec:
+  # Eğer belirli IP'ler için hostnames tanımlamanız gerekiyorsa bu bölümü kullanın.
+  # Ağ yapılandırmanıza bağlı olarak bu kısım gerekli olabilir veya olmayabilir.
   hostAliases:
   - ip: "10.77.3.203"
     hostnames:
@@ -12,66 +14,65 @@ spec:
     - "vault.cloudpro.com.tr"
     - "keycloak.cloudpro.com.tr"
     - "argo.cloudpro.com.tr"
-    - "core.harbor.domain"
+    - "core.harbor.domain" # Harbor'ın dahili domain adı, genellikle harbor'ın endpoint'i ile aynı olur.
 
   volumes:
-  - name: workspace
+  - name: workspace # Git deposunun kopyalanacağı ve Dockerfile'ın bulunacağı boş dizin
     emptyDir: {}
-  - name: harbor-credentials-volume
+  - name: docker-credentials-volume # Tek, birleştirilmiş kimlik bilgilerini içeren volume
     secret:
-      secretName: harbor-credentials # Harbor için kimlik bilgisi secret'ı
+      secretName: harbor-credentials # Burası, hem Harbor hem Docker Hub bilgilerini içeren secret'ınızın adı.
+                                     # Daha önceki adımlarda bu secret'ı güncelledik.
       items:
-        - key: .dockerconfigjson
-          path: config.json
-  - name: dockerhub-credentials-volume # Docker Hub için yeni eklenen volume
-    secret:
-      secretName: docker-hub # Daha önce oluşturduğunuz Docker Hub secret'ının adı
-      items:
-        - key: .dockerconfigjson
-          path: config.json
+        - key: .dockerconfigjson # Secret içindeki .dockerconfigjson anahtarını bağla
+          path: config.json      # /kaniko/.docker/config.json olarak erişilecektir
 
   initContainers:
+  # Git deposunu klonlamak için kullanılan initContainer
   - name: git-checkout
-    image: alpine/git:latest
+    image: alpine/git:latest # Basit bir git istemcisi imajı
     env:
-    - name: AZP_TOKEN
+    - name: AZP_TOKEN # Azure DevOps Personal Access Token
       value: "__AZP_TOKEN__"
-    - name: GIT_REPO_URL
+    - name: GIT_REPO_URL # Klonlanacak Git deposunun URL'si
       value: "__CONTEXT__"
     
     command: ["/bin/sh", "-c"]
     args:
     - |
-      set -e
+      set -e # Herhangi bir komut hata verirse betiği durdur
       echo "Cloning repository..."
+      # AZP_TOKEN'ı kullanarak kimlik doğrulaması ile depoyu klonla
       CLONE_URL=$(echo $GIT_REPO_URL | sed "s,https://,https://$AZP_TOKEN@,")
       git clone $CLONE_URL /workspace/source
 
     volumeMounts:
     - name: workspace
-      mountPath: /workspace
+      mountPath: /workspace # Git deposunun klonlanacağı yer
 
   containers:
+  # Kaniko imaj oluşturma container'ı
   - name: kaniko
-    image: gcr.io/kaniko-project/executor:latest
+    image: gcr.io/kaniko-project/executor:latest # Kaniko executor imajı
     args:
-      - "--context=/workspace/source"
-      - "--context-sub-path=__CONTEXT_SUB_PATH__"
-      - "--dockerfile=/workspace/source/__CONTEXT_SUB_PATH__/Dockerfile"
-      - "--destination=__DESTINATION_TAG__"
-      - "--cleanup"
-      - "--skip-tls-verify" # Bu bayrak hem çekme hem de itme için TLS doğrulamayı atlar.
+      - "--context=/workspace/source" # Dockerfile ve kaynak kodunun bulunduğu bağlam
+      - "--context-sub-path=__CONTEXT_SUB_PATH__" # Bağlam içindeki alt dizin (örneğin, "frontend" veya "backend")
+      - "--dockerfile=/workspace/source/__CONTEXT_SUB_PATH__/Dockerfile" # Dockerfile'ın tam yolu
+      - "--destination=__DESTINATION_TAG__" # Oluşturulan imajın gönderileceği hedef registry/repo/tag
+      - "--cleanup" # İmaj oluşturulduktan sonra önbelleği temizle
+      - "--skip-tls-verify" # TLS doğrulamasını atla (çekme ve itme işlemleri için).
+                            # Güvenli ortamlar için dikkatli kullanılmalıdır, genellikle özel CA sertifikası kullanılır.
 
     volumeMounts:
     - name: workspace
-      mountPath: /workspace
-    - name: harbor-credentials-volume
-      mountPath: /kaniko/.docker/ # Harbor kimlik bilgilerinin bağlandığı yol
-    - name: dockerhub-credentials-volume # Docker Hub kimlik bilgilerinin bağlandığı yol
-      mountPath: /kaniko/.docker/
-      readOnly: true # Bu volume'u salt okunur yapabiliriz, çünkü sadece okuma amaçlı kullanılacak.
+      mountPath: /workspace # Kaynak kodunun olduğu dizin
+    - name: docker-credentials-volume # Birleştirilmiş kimlik bilgilerinin bağlandığı yer
+      mountPath: /kaniko/.docker/ # Kaniko'nun Docker kimlik bilgilerini aradığı standart dizin
+      readOnly: true # Bu volume salt okunur olmalı
 
-  imagePullSecrets: # Kaniko executor imajını çekmek için (isteğe bağlı ama iyi bir pratik)
-  - name: docker-hub # Docker Hub secret'ınızın adı
+  # Kaniko executor imajını çekmek için (gcr.io genellikle herkese açık olduğundan
+  # imagePullSecrets burada zorunlu değildir, ancak özel bir registry'den çekiyorsanız gerekli olabilir).
+  # imagePullSecrets:
+  # - name: harbor-credentials # Executor imajını Harbor'dan çekiyorsanız bu secret'ı kullanabilirsiniz.
 
-  restartPolicy: Never
+  restartPolicy: Never # Pod'un başarılı veya başarısız olduktan sonra yeniden başlamamasını sağlar
