@@ -71,6 +71,14 @@ async def get_current_user_from_token(
 async def read_root():
     return {"message": "Authentication Service API (Keycloak Entegreli) - Hoş Geldiniz!"}
 
+@app.get("/healthz", status_code=status.HTTP_200_OK, tags=["Health Check"])
+def health_check():
+    """
+    Kubernetes probları için basit sağlık kontrolü. 
+    Hiçbir dış bağımlılığı yoktur.
+    """
+    return {"status": "healthy"}
+
 @app.post("/auth/token", response_model=TokenResponse, summary="Authorization Code ile Access Token Al")
 async def exchange_authorization_code_for_token(
     token_request: TokenRequest, # Request body olarak JSON bekleniyor

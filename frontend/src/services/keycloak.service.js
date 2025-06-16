@@ -7,9 +7,9 @@ import Keycloak from 'keycloak-js';
 // Şimdilik doğrudan girelim, isterseniz .env kullanımına geçebiliriz.
 
 const keycloakConfig = {
-    url: 'http://keycloak.cloudpro.com.tr', // Keycloak sunucu adresiniz
-    realm: 'helpdesk-realm',
-    clientId: 'helpdesk-frontend' // auth_service'in de kullandığı client ID
+   url: window.ENV_VARS?.VITE_KEYCLOAK_URL || 'http://localhost:8080', // Varsayılan değer veya env'den
+    realm: window.ENV_VARS?.VITE_KEYCLOAK_REALM || 'helpdesk-realm',
+    clientId: window.ENV_VARS?.VITE_KEYCLOAK_CLIENT_ID || 'helpdesk-frontend'
 };
 
 const keycloak = new Keycloak(keycloakConfig);
