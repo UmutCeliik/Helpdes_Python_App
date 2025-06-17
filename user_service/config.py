@@ -32,9 +32,9 @@ class DatabaseSettings(BaseModel):
 class KeycloakSettings(BaseModel):
     """Keycloak ile ilgili tüm ayarlar."""
     # Gelen kullanıcı token'larını doğrulamak için standart OIDC ayarları
-    issuer_uri: str = Field(default=os.getenv("KEYCLOAK_ISSUER_URI", ""), description="Keycloak realm issuer URI")
-    jwks_uri: str = Field(default=os.getenv("KEYCLOAK_JWKS_URI", ""), description="Keycloak JWKS URI")
-    audience: str = Field(default=os.getenv("KEYCLOAK_TOKEN_AUDIENCE", "helpdesk-frontend"), description="Token'ın hedeflendiği kitle")
+    issuer_uri: str = Field(default=os.getenv("KEYCLOAK_ISSUER_URI", "https://keycloak.cloudpro.com.tr/realms/helpdesk-realm"))
+    jwks_uri: str = Field(default=os.getenv("KEYCLOAK_JWKS_URI", "https://keycloak.cloudpro.com.tr/realms/helpdesk-realm/protocol/openid-connect/certs"))
+    audience: str = Field(default=os.getenv("KEYCLOAK_TOKEN_AUDIENCE", "account"))
     
     # Keycloak Admin API istemcisi için ayarlar (servis hesabı)
     admin_client_id: Optional[str] = Field(default=os.getenv("KEYCLOAK_ADMIN_CLIENT_ID"), description="Admin API için client ID")
