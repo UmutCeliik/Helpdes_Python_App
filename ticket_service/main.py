@@ -15,6 +15,8 @@ from .config import Settings, get_settings
 from .database import get_db
 from .auth import get_current_user_payload
 
+API_PREFIX = "/api/tickets"
+
 app = FastAPI(
     title="Ticket Service API",
     description="Helpdesk uygulaması için bilet (ticket) yönetim servisi.",
@@ -33,12 +35,11 @@ app.add_middleware(
 # --- ENDPOINT YOLLARI Ingress rewrite'e uygun olarak DÜZELTİLDİ ---
 # Artık /api/tickets ön eki burada bulunmuyor.
 
-@app.get("/healthz", status_code=status.HTTP_200_OK, tags=["Health Check"])
+@app.get(f"{API_PREFIX}/healthz", status_code=status.HTTP_200_OK, tags=["Health Check"])
 def health_check():
-    """Kubernetes probları için basit sağlık kontrolü."""
     return {"status": "healthy"}
 
-@app.post("/", response_model=models.Ticket, status_code=status.HTTP_201_CREATED, tags=["Tickets"])
+@app.post(f"{API_PREFIX}/", response_model=models.Ticket, status_code=status.HTTP_201_CREATED, tags=["Tickets"])
 async def create_ticket(
     ticket: models.TicketCreate,
     db: Session = Depends(get_db),
@@ -83,7 +84,7 @@ async def create_ticket(
     db_ticket = crud.create_ticket(db=db, ticket=ticket, creator_id=creator_id, tenant_id=tenant_id)
     return db_ticket
 
-@app.get("/", response_model=List[models.Ticket], tags=["Tickets"])
+@app.get(f"{API_PREFIX}/", response_model=List[models.Ticket], tags=["Tickets"])
 async def read_tickets_list(
     current_user_payload: Annotated[Dict[str, Any], Depends(get_current_user_payload)],
     db: Session = Depends(get_db),
@@ -104,7 +105,7 @@ async def read_tickets_list(
     db_tickets = query.order_by(crud.db_models.Ticket.created_at.desc()).offset(skip).limit(limit).all()
     return db_tickets
 
-@app.get("/{ticket_id}", response_model=models.TicketWithDetails, tags=["Tickets"])
+@app.get(f"{API_PREFIX}/{{ticket_id}}", response_model=models.TicketWithDetails, tags=["Tickets"])
 async def read_ticket_details(
     ticket_id: uuid.UUID,
     db: Session = Depends(get_db),
@@ -135,7 +136,7 @@ async def read_ticket_details(
     ticket_response.creator_details = creator_info
     return ticket_response
 
-@app.patch("/{ticket_id}", response_model=models.Ticket, tags=["Tickets"])
+@app.patch(f"{API_PREFIX}/{{ticket_id}}", response_model=models.Ticket, tags=["Tickets"])
 async def update_ticket(
     ticket_id: uuid.UUID,
     ticket_update: models.TicketUpdate,
@@ -153,7 +154,7 @@ async def update_ticket(
     return crud.update_ticket(db=db, ticket_id=ticket_id, ticket_update=ticket_update)
 
 
-@app.delete("/{ticket_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Tickets"])
+@app.delete(f"{API_PREFIX}/{{ticket_id}}", status_code=status.HTTP_204_NO_CONTENT, tags=["Tickets"])
 async def delete_ticket(
     ticket_id: uuid.UUID,
     db: Session = Depends(get_db),
@@ -171,7 +172,7 @@ async def delete_ticket(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@app.post("/{ticket_id}/comments", response_model=models.Comment, status_code=status.HTTP_201_CREATED, tags=["Comments"])
+@app.post(f"{API_PREFIX}/{{ticket_id}}/comments", response_model=models.Comment, status_code=status.HTTP_201_CREATED, tags=["Comments"])
 async def create_ticket_comment(
     ticket_id: uuid.UUID,
     comment: models.CommentCreate,
@@ -186,7 +187,7 @@ async def create_ticket_comment(
     new_comment = crud.create_comment(db=db, comment=comment, ticket_id=ticket_id, author_id=author_id)
     return new_comment
 
-@app.post("/{ticket_id}/attachments", response_model=List[models.Attachment], tags=["Attachments"])
+@app.post(f"{API_PREFIX}/{{ticket_id}}/attachments", response_model=List[models.Attachment], tags=["Attachments"])
 async def upload_ticket_attachments(
     ticket_id: uuid.UUID,
     files: List[UploadFile] = File(...),
@@ -223,7 +224,7 @@ async def upload_ticket_attachments(
 
     return saved_attachments
 
-@app.get("/attachments/{attachment_id}", tags=["Attachments"])
+@app.get(f"{API_PREFIX}/attachments/{{attachment_id}}", tags=["Attachments"])
 async def download_attachment(
     attachment_id: uuid.UUID,
     db: Session = Depends(get_db),

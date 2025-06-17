@@ -34,6 +34,9 @@ class Settings(BaseModel):
     keycloak: KeycloakSettings
     vault: VaultSettings
     internal_service_secret: Optional[str] = None
+    # --- YENİ EKLENEN ALAN ---
+    # Bu alan, ticket_service'in user_service ile konuşması için gereklidir.
+    user_service_url: str
 
 
 # --- Ayarları Başlatma ve Zenginleştirme ---
@@ -54,7 +57,11 @@ try:
             addr=os.environ["VAULT_ADDR"],
             token=os.getenv("VAULT_TOKEN"),
             internal_secret_path=os.getenv("VAULT_INTERNAL_SECRET_PATH", "secret/data/helpdesk/internal-communication")
-        )
+        ),
+        # --- DEĞİŞİKLİK BURADA ---
+        # USER_SERVICE_URL ortam değişkenini okuyup settings nesnesine ekliyoruz.
+        # Eğer bu değişken bulunamazsa, varsayılan olarak cluster içi servis adını kullanır.
+        user_service_url=os.getenv("USER_SERVICE_URL", "http://user-service:80")
     )
 except KeyError as e:
     # Eğer zorunlu bir ortam değişkeni ayarlanmamışsa, uygulama başlamadan hata verir.
@@ -103,6 +110,9 @@ print("-" * 50)
 print("Ticket Service - Konfigürasyon Yüklendi")
 print(f"  Veritabanı URL'si Yüklendi: {'Evet' if settings.database.url else 'Hayır'}")
 print(f"  Keycloak Issuer: {settings.keycloak.issuer_uri}")
+# --- DEĞİŞİKLİK BURADA ---
+# Yeni eklenen ayarı loglara yazdırıyoruz.
+print(f"  User Service URL: {settings.user_service_url}")
 print(f"  Vault Adresi: {settings.vault.addr}")
 print(f"  Vault Token'ı Yüklendi: {'Evet' if settings.vault.token else 'Hayır'}")
 print(f"  Dahili Sır Yüklendi: {'Evet' if settings.internal_service_secret else 'Hayır'}")
