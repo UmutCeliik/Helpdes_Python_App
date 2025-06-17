@@ -15,13 +15,10 @@ from .config import Settings, get_settings
 from .database import get_db
 from .auth import get_current_user_payload
 
-# Ana API yolunu (prefix) bir sabit olarak tanımlıyoruz.
-API_PREFIX = "/api/tickets"
-
 app = FastAPI(
     title="Ticket Service API",
     description="Helpdesk uygulaması için bilet (ticket) yönetim servisi.",
-    version="1.4.0", # Versiyon güncellendi
+    version="1.5.0", # Versiyon güncellendi
 )
 
 # CORS Ayarları
@@ -33,14 +30,15 @@ app.add_middleware(
     allow_headers=["*"],    
 )
 
-# --- TÜM ENDPOINT'LERDEKİ YOL (PATH) TANIMLAMALARI f-string KULLANILARAK DÜZELTİLDİ ---
+# --- ENDPOINT YOLLARI Ingress rewrite'e uygun olarak DÜZELTİLDİ ---
+# Artık /api/tickets ön eki burada bulunmuyor.
 
-@app.get(f"{API_PREFIX}/healthz", status_code=status.HTTP_200_OK, tags=["Health Check"])
+@app.get("/healthz", status_code=status.HTTP_200_OK, tags=["Health Check"])
 def health_check():
     """Kubernetes probları için basit sağlık kontrolü."""
     return {"status": "healthy"}
 
-@app.post(f"{API_PREFIX}/", response_model=models.Ticket, status_code=status.HTTP_201_CREATED, tags=["Tickets"])
+@app.post("/", response_model=models.Ticket, status_code=status.HTTP_201_CREATED, tags=["Tickets"])
 async def create_ticket(
     ticket: models.TicketCreate,
     db: Session = Depends(get_db),
@@ -60,7 +58,7 @@ async def create_ticket(
     
     # user_service ile iletişim, config dosyasından alınan URL ile yapılacak.
     # Bu ayarın `ticket-service-chart/values.yaml` içinde tanımlı olması gerekir.
-    sync_url = f"{settings.user_service_url}/api/users/internal/sync" # user-service'in yolu da güncellendi.
+    sync_url = f"{settings.user_service_url}/internal/users/sync" # Bu user-service yolu doğru
     headers = {"X-Internal-Secret": settings.internal_service_secret}
     
     try:
@@ -85,7 +83,7 @@ async def create_ticket(
     db_ticket = crud.create_ticket(db=db, ticket=ticket, creator_id=creator_id, tenant_id=tenant_id)
     return db_ticket
 
-@app.get(f"{API_PREFIX}/", response_model=List[models.Ticket], tags=["Tickets"])
+@app.get("/", response_model=List[models.Ticket], tags=["Tickets"])
 async def read_tickets_list(
     current_user_payload: Annotated[Dict[str, Any], Depends(get_current_user_payload)],
     db: Session = Depends(get_db),
@@ -106,7 +104,7 @@ async def read_tickets_list(
     db_tickets = query.order_by(crud.db_models.Ticket.created_at.desc()).offset(skip).limit(limit).all()
     return db_tickets
 
-@app.get(f"{API_PREFIX}/{{ticket_id}}", response_model=models.TicketWithDetails, tags=["Tickets"])
+@app.get("/{ticket_id}", response_model=models.TicketWithDetails, tags=["Tickets"])
 async def read_ticket_details(
     ticket_id: uuid.UUID,
     db: Session = Depends(get_db),
@@ -119,7 +117,7 @@ async def read_ticket_details(
 
     creator_info: Optional[models.UserInTicketResponse] = None
     user_id = db_ticket.creator_id
-    internal_url = f"{settings.user_service_url}/api/users/internal/users/{user_id}"
+    internal_url = f"{settings.user_service_url}/internal/users/{user_id}"
     headers = {"X-Internal-Secret": settings.internal_service_secret}
 
     try:
@@ -137,51 +135,43 @@ async def read_ticket_details(
     ticket_response.creator_details = creator_info
     return ticket_response
 
-@app.patch(f"{API_PREFIX}/{{ticket_id}}", response_model=models.Ticket, tags=["Tickets"])
+@app.patch("/{ticket_id}", response_model=models.Ticket, tags=["Tickets"])
 async def update_ticket(
     ticket_id: uuid.UUID,
     ticket_update: models.TicketUpdate,
     db: Session = Depends(get_db),
     current_user_payload: dict = Depends(get_current_user_payload),
-    # settings: Settings = Depends(get_settings), # Bu parametre şu an kullanılmıyor, kaldırılabilir.
 ):
     """Bir biletin durumunu veya diğer alanlarını günceller."""
+    # ... (Bu fonksiyonun içeriği aynı kalabilir) ...
     user_roles = current_user_payload.get("realm_access", {}).get("roles", [])
-
     if "customer-user" in user_roles:
         raise HTTPException(status_code=403, detail="Biletleri sadece yetkili personel güncelleyebilir.")
-
     db_ticket = crud.get_ticket(db, ticket_id)
     if not db_ticket:
         raise HTTPException(status_code=404, detail="Güncellenecek bilet bulunamadı.")
-    
-    # ... (Yetki kontrol mantığı aynı kalabilir) ...
-
     return crud.update_ticket(db=db, ticket_id=ticket_id, ticket_update=ticket_update)
 
-@app.delete(f"{API_PREFIX}/{{ticket_id}}", status_code=status.HTTP_204_NO_CONTENT, tags=["Tickets"])
+
+@app.delete("/{ticket_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Tickets"])
 async def delete_ticket(
     ticket_id: uuid.UUID,
     db: Session = Depends(get_db),
     current_user_payload: dict = Depends(get_current_user_payload),
-    # settings: Settings = Depends(get_settings), # Bu parametre şu an kullanılmıyor, kaldırılabilir.
 ):
     """Bir bileti siler."""
+    # ... (Bu fonksiyonun içeriği aynı kalabilir) ...
     user_roles = current_user_payload.get("realm_access", {}).get("roles", [])
-
     if "agent" in user_roles or "customer-user" in user_roles:
         raise HTTPException(status_code=403, detail="Bilet silme yetkisi sadece adminlere aittir.")
-
     db_ticket = crud.get_ticket(db, ticket_id)
     if not db_ticket:
         return Response(status_code=status.HTTP_204_NO_CONTENT)
-
-    # ... (Yetki kontrol mantığı aynı kalabilir) ...
-
     crud.delete_ticket(db=db, ticket_id=ticket_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
-@app.post(f"{API_PREFIX}/{{ticket_id}}/comments", response_model=models.Comment, status_code=status.HTTP_201_CREATED, tags=["Comments"])
+
+@app.post("/{ticket_id}/comments", response_model=models.Comment, status_code=status.HTTP_201_CREATED, tags=["Comments"])
 async def create_ticket_comment(
     ticket_id: uuid.UUID,
     comment: models.CommentCreate,
@@ -190,15 +180,13 @@ async def create_ticket_comment(
 ):
     """Belirli bir bilete yeni bir yorum ekler."""
     author_id = uuid.UUID(current_user_payload.get("sub"))
-    
     db_ticket = crud.get_ticket(db, ticket_id=ticket_id)
     if not db_ticket:
         raise HTTPException(status_code=404, detail="Yorum yapılacak bilet bulunamadı.")
-    
     new_comment = crud.create_comment(db=db, comment=comment, ticket_id=ticket_id, author_id=author_id)
     return new_comment
 
-@app.post(f"{API_PREFIX}/{{ticket_id}}/attachments", response_model=List[models.Attachment], tags=["Attachments"])
+@app.post("/{ticket_id}/attachments", response_model=List[models.Attachment], tags=["Attachments"])
 async def upload_ticket_attachments(
     ticket_id: uuid.UUID,
     files: List[UploadFile] = File(...),
@@ -207,7 +195,6 @@ async def upload_ticket_attachments(
 ):
     """Belirli bir bilete bir veya daha fazla dosya ekler."""
     uploader_id = uuid.UUID(current_user_payload.get("sub"))
-    
     db_ticket = crud.get_ticket(db, ticket_id=ticket_id)
     if not db_ticket:
         raise HTTPException(status_code=404, detail="Dosya eklenecek bilet bulunamadı.")
@@ -229,18 +216,14 @@ async def upload_ticket_attachments(
             file.file.close()
 
         db_attachment = crud.create_attachment(
-            db=db,
-            file_name=file.filename,
-            file_path=str(file_location),
-            file_type=file.content_type,
-            ticket_id=ticket_id,
-            uploader_id=uploader_id
+            db=db, file_name=file.filename, file_path=str(file_location),
+            file_type=file.content_type, ticket_id=ticket_id, uploader_id=uploader_id
         )
         saved_attachments.append(db_attachment)
 
     return saved_attachments
 
-@app.get(f"{API_PREFIX}/attachments/{{attachment_id}}", tags=["Attachments"])
+@app.get("/attachments/{attachment_id}", tags=["Attachments"])
 async def download_attachment(
     attachment_id: uuid.UUID,
     db: Session = Depends(get_db),
