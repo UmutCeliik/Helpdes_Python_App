@@ -2,9 +2,12 @@
 import { ref } from 'vue';
 import { defineStore } from 'pinia';
 import apiClient from '@/api/axios'; // Axios istemcimiz
-// user_service'in çalıştığı portu ve base path'i bilmemiz gerekiyor.
-// user_service (admin endpoint'leri içeriyor) port 8001'de çalışıyor.
-const USER_SERVICE_BASE_URL = 'http://localhost:8001'; 
+
+// BU SATIRI TAMAMEN KALDIRIYORUZ.
+// const USER_SERVICE_BASE_URL = 'http://localhost:8001'; 
+
+// Tenant endpoint'leri user-service altında olduğu için ana Ingress yolunu burada tanımlıyoruz.
+const TENANT_API_PATH = 'api/users/admin/tenants';
 
 export const useTenantStore = defineStore('tenants', () => {
   // State
@@ -24,19 +27,17 @@ export const useTenantStore = defineStore('tenants', () => {
 
 
   // Actions
-  async function fetchTenants(page = 1, limit = 10) { // skip yerine page alıp skip'i hesaplayabiliriz
+  async function fetchTenants(page = 1, limit = 10) {
     isLoading.value = true;
     error.value = null;
-    const skip = (page - 1) * limit; // Sayfa numarasından skip değerini hesapla
+    const skip = (page - 1) * limit;
 
     try {
-      // --- URL OLUŞTURMA KISMINI DÜZELTİN ---
-      // Template literal (backtick ``) kullanarak değişkenleri doğru yerleştirin
-      const url = `${USER_SERVICE_BASE_URL}/admin/tenants?skip=${skip}&limit=${limit}`;
-      console.log('Requesting tenants from URL:', url); // Oluşturulan URL'i loglayın
+      // URL'i göreceli path olarak güncelliyoruz.
+      const url = `${TENANT_API_PATH}?skip=${skip}&limit=${limit}`;
+      console.log('Requesting tenants from URL:', url);
 
       const response = await apiClient.get(url);
-      // --- URL OLUŞTURMA KISMI DÜZELTİLDİ ---
 
       if (response.data && Array.isArray(response.data.items) && typeof response.data.total === 'number') {
         tenants.value = response.data.items;
@@ -50,15 +51,8 @@ export const useTenantStore = defineStore('tenants', () => {
       }
     } catch (err) {
       console.error('fetchTenants error:', err.response || err.message || err);
-      let errorMessage = 'Tenant verileri alınamadı.';
-      if (err.response && err.response.data && err.response.data.detail) {
-        errorMessage = typeof err.response.data.detail === 'string' 
-                       ? err.response.data.detail 
-                       : JSON.stringify(err.response.data.detail);
-      } else if (err.message) {
-        errorMessage = err.message;
-      }
-      error.value = errorMessage;
+      // Hata yönetimi kodunuz aynı kalabilir...
+      error.value = 'Tenant verileri alınamadı. Lütfen ağ bağlantınızı veya Ingress ayarlarını kontrol edin.';
       tenants.value = []; 
       totalTenants.value = 0;
     } finally {
@@ -66,68 +60,48 @@ export const useTenantStore = defineStore('tenants', () => {
     }
   }
 
-  async function createTenant(tenantData) { // tenantData bir obje olacak, örn: { name: 'Yeni Tenant Adı' }
+  async function createTenant(tenantData) {
     isCreating.value = true;
-    createError.value = null; // Önceki oluşturma hatalarını temizle
-    error.value = null; // Genel hatayı da temizleyebiliriz
+    createError.value = null;
+    error.value = null;
 
     try {
-      const url = `${USER_SERVICE_BASE_URL}/admin/tenants`;
+      // URL'i göreceli path olarak güncelliyoruz.
+      const url = `${TENANT_API_PATH}`;
       console.log('Creating tenant at URL:', url, 'with data:', tenantData);
-      // apiClient (axios instance) Authorization header'ını otomatik ekleyecektir.
       const response = await apiClient.post(url, tenantData);
 
       console.log('Tenant created successfully:', response.data);
-      // Başarılı oluşturma sonrası tenant listesini yenileyebiliriz.
-      // Veya kullanıcıyı direkt listeleme sayfasına yönlendirip orada yenilenmesini sağlayabiliriz.
-      // Şimdilik sadece başarılı olduğunu belirtelim, UI yönlendirme yapacak.
       await fetchTenants(); // Listeyi yenile
-      return true; // Başarı durumunu döndür
+      return true;
     } catch (err) {
       console.error('createTenant error:', err.response || err.message || err);
-      let errorMessage = 'Tenant oluşturulamadı.';
-      if (err.response && err.response.data && err.response.data.detail) {
-        errorMessage = typeof err.response.data.detail === 'string' 
-                       ? err.response.data.detail 
-                       : JSON.stringify(err.response.data.detail);
-      } else if (err.message) {
-        errorMessage = err.message;
-      }
-      createError.value = errorMessage; // Oluşturma hatasını ayarla
-      return false; // Başarısızlık durumunu döndür
+      // Hata yönetimi kodunuz aynı kalabilir...
+      createError.value = err.response?.data?.detail || 'Tenant oluşturulamadı.';
+      return false;
     } finally {
       isCreating.value = false;
     }
   }
-  // --- YENİ EKlenen createTenant ACTION'I SONU ---
 
-  async function updateTenant(tenantId, updateData) { // updateData bir obje olacak, örn: { status: 'inactive' } veya { name: 'Yeni Ad', status: 'active'}
-    console.log('[tenantStore] updateTenant action started. Tenant ID:', tenantId, 'Update Data:', updateData);
+  async function updateTenant(tenantId, updateData) {
     isUpdating.value = true;
     updateError.value = null;
     error.value = null; 
 
     try {
-      const url = `${USER_SERVICE_BASE_URL}/admin/tenants/${tenantId}`;
+      // URL'i göreceli path olarak güncelliyoruz.
+      const url = `${TENANT_API_PATH}/${tenantId}`;
       console.log(`Updating tenant ${tenantId} at URL: ${url} with data:`, updateData);
-      const response = await apiClient.patch(url, updateData); // PATCH metodu kullanıyoruz
+      const response = await apiClient.patch(url, updateData);
 
       console.log('Tenant updated successfully:', response.data);
-      // Başarılı güncelleme sonrası listedeki ilgili tenant'ı güncelleyebiliriz
-      // veya tüm listeyi yeniden çekebiliriz. Şimdilik listeyi yeniden çekelim.
-      await fetchTenants(); // Güncel listeyi al
+      await fetchTenants();
       return true;
     } catch (err) {
       console.error(`updateTenant error for ID ${tenantId}:`, err.response || err.message || err);
-      let errorMessage = 'Tenant güncellenemedi.';
-      if (err.response && err.response.data && err.response.data.detail) {
-        errorMessage = typeof err.response.data.detail === 'string' 
-                       ? err.response.data.detail 
-                       : JSON.stringify(err.response.data.detail);
-      } else if (err.message) {
-        errorMessage = err.message;
-      }
-      updateError.value = errorMessage;
+      // Hata yönetimi kodunuz aynı kalabilir...
+      updateError.value = err.response?.data?.detail || 'Tenant güncellenemedi.';
       return false;
     } finally {
       isUpdating.value = false;
@@ -137,48 +111,42 @@ export const useTenantStore = defineStore('tenants', () => {
   async function fetchTenantDetails(companyId) {
     isLoadingDetails.value = true;
     detailsError.value = null;
-    currentTenantDetails.value = null; // Önceki detayı temizle
+    currentTenantDetails.value = null;
 
     try {
-      const url = `${USER_SERVICE_BASE_URL}/admin/tenants/${companyId}`;
+      // URL'i göreceli path olarak güncelliyoruz.
+      const url = `${TENANT_API_PATH}/${companyId}`;
       console.log(`Fetching tenant details for ID ${companyId} from URL: ${url}`);
       const response = await apiClient.get(url);
-      currentTenantDetails.value = response.data; // Yanıt doğrudan tenant objesini içermeli
+      currentTenantDetails.value = response.data;
       console.log('Tenant details fetched:', currentTenantDetails.value);
     } catch (err) {
       console.error(`fetchTenantDetails error for ID ${companyId}:`, err.response || err.message || err);
-      let errorMessage = 'Tenant detayları alınamadı.';
-      if (err.response && err.response.data && err.response.data.detail) {
-         errorMessage = typeof err.response.data.detail === 'string' 
-                       ? err.response.data.detail 
-                       : JSON.stringify(err.response.data.detail);
-      } else if (err.message) {
-        errorMessage = err.message;
-      }
-      detailsError.value = errorMessage;
+      // Hata yönetimi kodunuz aynı kalabilir...
+      detailsError.value = err.response?.data?.detail || 'Tenant detayları alınamadı.';
     } finally {
       isLoadingDetails.value = false;
     }
   }
 
   async function deleteTenant(tenantId) {
-    this.isDeleting = true;
-    this.deleteError = null;
+    isDeleting.value = true;
+    deleteError.value = null;
     try {
-      const url = `${USER_SERVICE_BASE_URL}/admin/tenants/${tenantId}`;
+      // URL'i göreceli path olarak güncelliyoruz.
+      const url = `${TENANT_API_PATH}/${tenantId}`;
       console.log('TenantStore: Deleting tenant with ID:', tenantId, 'at URL:', url);
-      await apiClient.delete(url); // Backend 204 No Content dönebilir
+      await apiClient.delete(url);
       
       console.log('TenantStore: Tenant deleted successfully from backend.');
-      // Silme sonrası listeyi yenile
-      await this.fetchTenants(1, 10); // Sayfa 1'e dönüp listeyi yenile
-      return true; // Başarı durumu
+      await fetchTenants(1, 10);
+      return true;
     } catch (err) {
       console.error('TenantStore: Error deleting tenant:', err.response || err.message || err);
-      this.deleteError = err.response?.data?.detail || 'Tenant silinirken bir hata oluştu.';
-      return false; // Hata durumu
+      deleteError.value = err.response?.data?.detail || 'Tenant silinirken bir hata oluştu.';
+      return false;
     } finally {
-      this.isDeleting = false;
+      isDeleting.value = false;
     }
   }
 
@@ -194,12 +162,12 @@ export const useTenantStore = defineStore('tenants', () => {
     currentTenantDetails,
     isLoadingDetails,
     detailsError,
-    isDeleting,   // YENİ: Dışarıya aç
-    deleteError,  // YENİ: Dışarıya aç
+    isDeleting,
+    deleteError,
     fetchTenants,
     createTenant,
     updateTenant,
     fetchTenantDetails,
-    deleteTenant, // YENİ: Dışarıya aç
+    deleteTenant,
   };
 });
