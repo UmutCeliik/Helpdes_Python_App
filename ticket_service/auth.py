@@ -1,29 +1,23 @@
 # ticket_service/auth.py
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
-from jose import jwt, JWTError, exceptions
-# PyJWT'nin (python-jose'un kullandığı) spesifik hatalarını import etmek için:
-# Eğer jose.jwt altında direkt yoksa, jose.exceptions'tan import edilebilirler.
-# Genellikle jwt.ExpiredSignatureError gibi erişilebilir olurlar.
-# from jose.exceptions import ExpiredSignatureError, InvalidAudienceError, InvalidClaimError # InvalidIssuerError için InvalidClaimError kullanılabilir
-
+from jose import jwt, JWTError
 from typing import Optional, Dict, Any
 import httpx
 from datetime import datetime, timedelta
 
-# config.py'den ayarları import et
 from .config import get_settings, Settings
 
-# JWKS'leri cache'lemek için
 _jwks_cache: Optional[Dict[str, Any]] = None
 _jwks_cache_expiry: Optional[datetime] = None
-JWKS_CACHE_TTL_SECONDS = 3600 # 1 saat cache'le
+JWKS_CACHE_TTL_SECONDS = 3600
 
-# Bu scheme, token'ın "Authorization: Bearer YOUR_TOKEN" başlığından alınmasını sağlar.
-# tokenUrl burada sadece FastAPI'nin OpenAPI dökümanı için bir ipucu.
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/token_not_issued_here")
 
 async def fetch_jwks_for_ticket_service(settings: Settings) -> Dict[str, Any]:
+    """
+    JWKS'leri Keycloak'tan çeker. SSL doğrulamasını atlar.
+    """
     global _jwks_cache, _jwks_cache_expiry
     now = datetime.utcnow()
 
@@ -35,9 +29,10 @@ async def fetch_jwks_for_ticket_service(settings: Settings) -> Dict[str, Any]:
         print("ERROR (TicketService): JWKS URI is not configured.")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="JWKS URI not configured in TicketService")
 
+    print(f"TICKET_SERVICE_AUTH: Fetching JWKS from {settings.keycloak.jwks_uri}")
     try:
-        async with httpx.AsyncClient() as client:
-            print(f"TICKET_SERVICE_AUTH: Fetching JWKS from {settings.keycloak.jwks_uri}")
+        # DEĞİŞİKLİK: SSL sertifika doğrulamasını atlamak için verify=False eklendi.
+        async with httpx.AsyncClient(verify=False) as client:
             response = await client.get(settings.keycloak.jwks_uri)
             response.raise_for_status()
             new_jwks = response.json()
@@ -45,43 +40,39 @@ async def fetch_jwks_for_ticket_service(settings: Settings) -> Dict[str, Any]:
             _jwks_cache_expiry = now + timedelta(seconds=JWKS_CACHE_TTL_SECONDS)
             print("TICKET_SERVICE_AUTH: Fetched and cached new JWKS.")
             return new_jwks
-    except httpx.HTTPStatusError as exc:
-        print(f"ERROR (TicketService): Could not fetch JWKS (HTTPStatusError): {exc.response.status_code} - {exc.response.text}")
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=f"Could not fetch JWKS: {exc.response.status_code}")
     except Exception as e:
         print(f"ERROR (TicketService): Could not fetch JWKS (Exception): {e}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Could not fetch JWKS from {settings.keycloak.jwks_uri}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Could not fetch validation keys from authentication server: {e}")
 
 
 class AuthHandlerTicketService:
     @staticmethod
     async def decode_token(token: str, settings: Settings) -> Optional[dict]:
-        # ... (metodun başındaki loglama ve kontroller aynı) ...
         print(f"TICKET_SERVICE_AUTH: Attempting to decode token. Expected audience: '{settings.keycloak.audience}', Expected issuer: '{settings.keycloak.issuer_uri}'")
         
         if not settings.keycloak.issuer_uri or not settings.keycloak.audience:
-            # ... (hata yönetimi aynı) ...
             print("ERROR (TicketService): Keycloak issuer_uri or audience not configured in settings.")
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Auth config error in TicketService: issuer or audience missing.")
             
-        jwks = await fetch_jwks_for_ticket_service(settings)
+        jwks = await fetch_jwks_for_ticket_service(settings) # Düzeltilmiş fonksiyonu çağırıyoruz
+        
         if not jwks or not jwks.get("keys"):
-            # ... (hata yönetimi aynı) ...
             print(f"ERROR (TicketService): JWKS not found or no keys in JWKS. JWKS: {jwks}")
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Could not retrieve valid JWKS for token validation in TicketService.")
 
         try:
-            # ... (unverified_header, token_kid, rsa_key bulma mantığı aynı) ...
             unverified_header = jwt.get_unverified_header(token)
             token_kid = unverified_header.get("kid")
             if not token_kid:
                 raise JWTError("Token header missing 'kid'")
+            
             rsa_key = {}
             for key_val in jwks["keys"]:
                 if key_val.get("kid") == token_kid:
                     rsa_key = { "kty": key_val.get("kty"), "kid": key_val.get("kid"), "use": key_val.get("use"), "n": key_val.get("n"), "e": key_val.get("e")}
                     if "alg" in key_val: rsa_key["alg"] = key_val.get("alg")
                     break
+            
             if not rsa_key:
                 raise JWTError("TicketService: Unable to find appropriate key in JWKS matching token's kid")
 
@@ -94,7 +85,6 @@ class AuthHandlerTicketService:
             )
             print(f"TICKET_SERVICE_AUTH: Token successfully decoded. Payload 'sub': {payload.get('sub')}, 'aud': {payload.get('aud')}, 'iss': {payload.get('iss')}")
 
-            # --- YENİ EKLENEN KISIM ---
             raw_groups = payload.get("groups", [])
             cleaned_groups = []
             if isinstance(raw_groups, list):
@@ -108,22 +98,10 @@ class AuthHandlerTicketService:
             
             payload["tenant_groups"] = cleaned_groups
             print(f"TICKET_SERVICE_AUTH: Tenant groups added to payload: {payload['tenant_groups']}")
-            # --- YENİ EKLENEN KISIM SONU ---
-
             return payload
 
-        except jwt.ExpiredSignatureError as e: # Spesifik hataları loglayabiliriz
-            print(f"ERROR (TicketService): Token ExpiredSignatureError: {e}")
-            return None
-        # ... (diğer spesifik JWTError'lar ve genel Exception yakalama blokları aynı) ...
-        except jwt.InvalidAudienceError as e:
-            print(f"ERROR (TicketService): Token InvalidAudienceError: {e}")
-            return None
-        except jwt.InvalidIssuerError as e:
-            print(f"ERROR (TicketService): Token InvalidIssuerError: {e}")
-            return None
-        except JWTError as e: 
-            print(f"ERROR (TicketService): General JWTError during token validation: {e}")
+        except JWTError as e:
+            print(f"ERROR (TicketService): JWT validation error: {type(e).__name__} - {e}")
             return None
         except Exception as e:
             print(f"ERROR (TicketService): Unexpected error during token decoding: {type(e).__name__} - {e}")
@@ -136,11 +114,9 @@ async def get_current_user_payload(
 ) -> Dict[str, Any]:
     payload = await AuthHandlerTicketService.decode_token(token, settings)
     if payload is None:
-        # decode_token içinde detaylı loglama yapıldığı için burada daha genel bir mesaj verilebilir
-        # veya spesifik hata loglardan takip edilir.
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, 
-            detail="Geçersiz kimlik bilgileri veya token doğrulanamadı", # Mesajı biraz güncelledim
+            detail="Geçersiz kimlik bilgileri veya token doğrulanamadı",
             headers={"WWW-Authenticate": "Bearer"}
         )
     return payload
