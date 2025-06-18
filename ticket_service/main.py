@@ -59,7 +59,7 @@ async def create_ticket(
     
     # user_service ile iletişim, config dosyasından alınan URL ile yapılacak.
     # Bu ayarın `ticket-service-chart/values.yaml` içinde tanımlı olması gerekir.
-    sync_url = f"{settings.user_service_url}/internal/users/sync" # Bu user-service yolu doğru
+    sync_url = f"{settings.user_service_url}/api/users/internal/users/sync" # Bu user-service yolu doğru
     headers = {"X-Internal-Secret": settings.internal_service_secret}
     
     try:
