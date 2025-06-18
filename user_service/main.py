@@ -104,6 +104,9 @@ async def lifespan(app: FastAPI):
 
 # --- FastAPI Uygulama Tanımı ---
 
+
+API_PREFIX = "/api/users"
+
 app = FastAPI(
     title="User Service API",
     description="Helpdesk uygulaması için Kullanıcı ve Şirket (Tenant) Yönetimi Servisi.",
@@ -127,8 +130,7 @@ def _split_full_name(full_name: str) -> tuple[str, str]:
     parts = full_name.strip().split(maxsplit=1)
     return (parts[0], parts[1]) if len(parts) > 1 else (parts[0], "")
 
-@app.delete(
-    "/admin/tenants/{company_id}",
+@app.delete(f"{API_PREFIX}/admin/tenants/{{company_id}}",
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Belirli bir tenant'ı (Keycloak grubu ve lokal DB kaydı) siler (Sadece General Admin)"
 )
@@ -189,7 +191,7 @@ async def delete_tenant_by_admin(
     
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
-@app.get("/admin/users/{user_id}", response_model=user_pydantic_models.User, tags=["Admin - User Management"])
+@app.get(f"{API_PREFIX}/admin/users/{{user_id}}", response_model=user_pydantic_models.User, tags=["Admin - User Management"])
 async def read_user_details_for_admin(
     user_id: uuid.UUID,
     current_admin_payload: Annotated[dict, Depends(get_current_user_payload)],
@@ -260,7 +262,7 @@ async def read_user_details_for_admin(
     return user_response
 
 
-@app.patch("/admin/users/{user_id}", response_model=user_pydantic_models.User, tags=["Admin - User Management"])
+@app.patch(f"{API_PREFIX}/admin/users/{{user_id}}", response_model=user_pydantic_models.User, tags=["Admin - User Management"])
 async def update_user_for_admin(
     user_id: uuid.UUID,
     user_update_data: user_pydantic_models.AdminUserUpdateRequest,
@@ -373,7 +375,7 @@ async def update_user_for_admin(
     # Bu, tüm bağlı verilerin (yeni roller, yeni şirket) doğru şekilde yüklenmesini sağlar.
     return await read_user_details_for_admin(user_id, current_admin_payload, settings, db)
 
-@app.get("/internal/users/{user_id}", response_model=user_pydantic_models.User, tags=["Internal"])
+@app.get(f"{API_PREFIX}/internal/users/{{user_id}}", response_model=user_pydantic_models.User, tags=["Internal"])
 async def get_user_for_internal_service(
     user_id: uuid.UUID,
     # Bu endpoint'in sadece diğer servisler tarafından çağrıldığından emin olmak için
@@ -398,8 +400,7 @@ async def get_user_for_internal_service(
     # Yanıtı Pydantic modeline uygun şekilde döndür
     return db_user
 
-@app.post(
-    "/admin/users",
+@app.post(f"{API_PREFIX}/admin/users",
     response_model=user_pydantic_models.User,
     status_code=status.HTTP_201_CREATED,
     summary="Yeni bir kullanıcı oluşturur (Keycloak + Lokal DB) (Sadece General Admin)"
@@ -529,7 +530,7 @@ async def admin_create_user(
         created_at=db_user.created_at 
     )
 
-@app.post("/internal/users/sync", response_model=user_pydantic_models.User, tags=["Internal"])
+@app.post(f"{API_PREFIX}/internal/users/sync", response_model=user_pydantic_models.User, tags=["Internal"])
 async def sync_user_internally(
     sync_data: user_pydantic_models.UserCreateInternal, # JIT için gelen veri
     db: Session = Depends(get_db),
@@ -573,8 +574,7 @@ async def sync_user_internally(
     )
     return response_user
 
-@app.get(
-    "/admin/users", 
+@app.get(f"{API_PREFIX}/admin/users", 
     response_model=UserListResponse, # <--- Güncellenmiş yanıt modeli
     summary="Tüm kullanıcıları listeler (Sadece General Admin)"
 )
@@ -617,12 +617,12 @@ async def list_users_for_admin(
         
     return UserListResponse(items=pydantic_users, total=total_users)
 
-@app.get("/", tags=["Root"])
+@app.get(f"{API_PREFIX}/", tags=["Root"])
 async def read_root_user_service():
     return {"message": "User Service API çalışıyor"}
 
 
-@app.post("/admin/tenants", response_model=user_pydantic_models.Company, status_code=status.HTTP_201_CREATED, summary="Yeni bir tenant (müşteri şirketi) oluşturur (Sadece General Admin)")
+@app.post(f"{API_PREFIX}/admin/tenants", response_model=user_pydantic_models.Company, status_code=status.HTTP_201_CREATED, summary="Yeni bir tenant (müşteri şirketi) oluşturur (Sadece General Admin)")
 async def create_new_tenant(
     tenant_request: user_pydantic_models.TenantCreateRequest, 
     current_user_payload: Annotated[Dict[str, Any], Depends(get_current_user_payload)],
@@ -687,7 +687,7 @@ async def create_new_tenant(
         print(f"HATA (POST /admin/tenants): Veritabanına şirket kaydedilirken beklenmedik hata: {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Şirket veritabanına kaydedilirken bir hata oluştu.")
 
-@app.get("/admin/tenants", response_model=user_pydantic_models.CompanyList, summary="Tüm tenantları (müşteri şirketlerini) listeler (Sadece General Admin)")
+@app.get(f"{API_PREFIX}/admin/tenants", response_model=user_pydantic_models.CompanyList, summary="Tüm tenantları (müşteri şirketlerini) listeler (Sadece General Admin)")
 async def list_tenants(
     current_user_payload: Annotated[Dict[str, Any], Depends(get_current_user_payload)],
     db: Session = Depends(get_db),
@@ -708,7 +708,7 @@ async def list_tenants(
     
     return user_pydantic_models.CompanyList(items=companies, total=total_companies)
 
-@app.get("/admin/tenants/{company_id}", response_model=user_pydantic_models.Company, summary="Belirli bir tenantın detaylarını getirir (Sadece General Admin)")
+@app.get(f"{API_PREFIX}/admin/tenants/{{company_id}}", response_model=user_pydantic_models.Company, summary="Belirli bir tenantın detaylarını getirir (Sadece General Admin)")
 async def get_tenant_details(
     company_id: uuid.UUID, 
     current_user_payload: Annotated[Dict[str, Any], Depends(get_current_user_payload)],
@@ -730,7 +730,7 @@ async def get_tenant_details(
     
     return db_company
 
-@app.patch("/admin/tenants/{company_id}", response_model=user_pydantic_models.Company, summary="Belirli bir tenantın statüsünü veya adını günceller (Sadece General Admin)")
+@app.patch(f"{API_PREFIX}/admin/tenants/{{company_id}}", response_model=user_pydantic_models.Company, summary="Belirli bir tenantın statüsünü veya adını günceller (Sadece General Admin)")
 async def update_tenant_details( # Fonksiyon adını daha genel yaptım
     company_id: uuid.UUID, 
     company_update_request: user_pydantic_models.CompanyUpdate, # database_pkg.schemas.CompanyUpdate Pydantic modeli
@@ -790,14 +790,7 @@ async def update_tenant_details( # Fonksiyon adını daha genel yaptım
     print(f"{log_prefix} Company '{updated_company.name}' (ID: {updated_company.id}) updated successfully. New data: {updated_company}")
     return updated_company
 
-
-
-
-
-#---------------------------------------------------------------------------------------------------------------
-
-@app.delete(
-    "/admin/users/{user_id}",
+@app.delete(f"{API_PREFIX}/admin/users/{{user_id}}",
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Belirli bir kullanıcıyı sistemden (Keycloak ve lokal DB) siler (Sadece General Admin)"
 )
@@ -847,7 +840,7 @@ async def admin_delete_user(
     # Her iki silme işlemi de "başarılı" (yani kullanıcı artık sistemde tanımlı değil) ise 204 dön.
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
-@app.patch("/admin/users/{user_id}", response_model=user_pydantic_models.User, tags=["Admin - Users"])
+@app.patch(f"{API_PREFIX}/admin/users/{{user_id}}", response_model=user_pydantic_models.User, tags=["Admin - Users"])
 async def admin_update_user(
     user_id: uuid.UUID,
     update_data: user_pydantic_models.AdminUserUpdateRequest,
@@ -910,7 +903,7 @@ async def admin_update_user(
     
     return updated_user_response
 
-@app.get("/admin/users/{user_id}", response_model=user_pydantic_models.User, tags=["Admin - Users"])
+@app.get(f"{API_PREFIX}/admin/users/{{user_id}}", response_model=user_pydantic_models.User, tags=["Admin - Users"])
 async def get_user_details_for_admin(
     user_id: uuid.UUID,
     current_admin_payload: Annotated[Dict, Depends(get_current_user_payload)],
@@ -952,7 +945,7 @@ async def get_user_details_for_admin(
         company=user_company_info
     )
 
-@app.post("/users/sync-from-keycloak", response_model=user_pydantic_models.User, tags=["Internal"])
+@app.post(f"{API_PREFIX}/users/sync-from-keycloak", response_model=user_pydantic_models.User, tags=["Internal"])
 async def sync_user_from_keycloak(
     user_in: user_pydantic_models.UserCreateInternal,
     is_internal: Annotated[bool, Depends(verify_internal_secret)],
@@ -966,7 +959,7 @@ async def sync_user_from_keycloak(
         roles=user_in.roles, is_active=db_user.is_active, created_at=db_user.created_at
     )
 
-@app.get("/users/me", response_model=user_pydantic_models.User, tags=["Users"])
+@app.get(f"{API_PREFIX}/users/me", response_model=user_pydantic_models.User, tags=["Users"])
 async def read_users_me(
     current_user_payload: Annotated[Dict, Depends(get_current_user_payload)],
     db: Session = Depends(get_db)
