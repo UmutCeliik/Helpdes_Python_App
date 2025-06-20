@@ -4,6 +4,8 @@
 parameters:
 - name: serviceName
   type: string
+- name: sonarProjectKey
+  type: string
 - name: dependsOn
   type: object
   default: []
@@ -100,11 +102,58 @@ jobs:
       arguments: 'pod/$(scaPodName) --ignore-not-found=true'
 
   # ===================================================================
-  # BÖLÜM 2: KANIKO BUILD POD'U
+  # YENİ BÖLÜM: SONARQUBE TARAMA POD'U
+  # ===================================================================
+  - task: Bash@3
+    name: PrepareSonarManifest
+    displayName: '2a. Prepare SonarQube Pod Manifest'
+    env:
+      AZP_TOKEN: $(System.AccessToken)
+      SONAR_URL: $(SonarQube-Connection.Url) # Servis bağlantısından URL'yi al
+      SONAR_TOKEN: $(SonarQube-Connection.Token) # Servis bağlantısından Token'ı al
+    inputs:
+      targetType: 'inline'
+      script: |
+        echo "Preparing SonarQube manifest for service: $(serviceName)..."
+        safePodSuffix=$(echo "$(serviceName)" | sed 's/_/-/g')
+        sonarPodName="sonar-$(imageTag)-$safePodSuffix"
+        echo "##vso[task.setvariable variable=sonarPodName]$sonarPodName"
+
+        cp templates/sonar-pod-template.yaml "$(kanikoFinalFile)-sonar-$(serviceName)"
+        
+        # Değerleri YAML şablonuna yaz
+        sed -i "s|__POD_NAME__|$sonarPodName|g" "$(kanikoFinalFile)-sonar-$(serviceName)"
+        sed -i "s|__CONTEXT__|$(gitRepoUrl)|g" "$(kanikoFinalFile)-sonar-$(serviceName)"
+        sed -i "s|__CONTEXT_SUB_PATH__|$(serviceName)|g" "$(kanikoFinalFile)-sonar-$(serviceName)"
+        sed -i "s|__AZP_TOKEN__|$AZP_TOKEN|g" "$(kanikoFinalFile)-sonar-$(serviceName)"
+        sed -i "s|__SONAR_URL__|$SONAR_URL|g" "$(kanikoFinalFile)-sonar-$(serviceName)"
+        sed -i "s|__SONAR_TOKEN__|$SONAR_TOKEN|g" "$(kanikoFinalFile)-sonar-$(serviceName)"
+        sed -i "s|__PROJECT_KEY__|$(sonarProjectKey)|g" "$(kanikoFinalFile)-sonar-$(serviceName)"
+
+  - task: Kubernetes@1
+    displayName: '2b. Apply & Run SonarQube Pod'
+    inputs: { connectionType: 'None', namespace: '$(k8sNamespace)', command: 'apply', arguments: '-f $(kanikoFinalFile)-sonar-$(serviceName)' }
+
+  - task: Bash@3
+    displayName: '2c. Wait for SonarQube Pod to Complete & Get Logs'
+    inputs:
+      targetType: 'inline'
+      script: |
+        echo "Waiting for pod $(sonarPodName) to finish..."
+        kubectl wait --for=condition=Ready pod/$(sonarPodName) --timeout=5m -n $(k8sNamespace)
+        kubectl logs $(sonarPodName) -n $(k8sNamespace) -c sonarqube-scanner --follow
+
+  - task: Kubernetes@1
+    displayName: '2d. Cleanup SonarQube Pod'
+    condition: always()
+    inputs: { connectionType: 'None', namespace: '$(k8sNamespace)', command: 'delete', arguments: 'pod/$(sonarPodName) --ignore-not-found=true' }
+
+  # ===================================================================
+  # BÖLÜM 3: KANIKO BUILD POD'U (Eskiden Bölüm 2 idi, şimdi 3 oldu)
   # ===================================================================
   - task: Bash@3
     name: PrepareKanikoManifest
-    displayName: '2a. Prepare Kaniko Pod Manifest'
+    displayName: '3a. Prepare Kaniko Pod Manifest'
     env:
           AZP_TOKEN: $(System.AccessToken)
     inputs:
@@ -120,45 +169,25 @@ jobs:
         sed -i "s|__DESTINATION_TAG__|$(harborRepo)/$(serviceName):$(imageTag)|g" "$(kanikoFinalFile)-kaniko-$(serviceName)"
         sed -i "s|__AZP_TOKEN__|$AZP_TOKEN|g" "$(kanikoFinalFile)-kaniko-$(serviceName)"
 
+  # ... KANIKO İÇİN Apply, Wait, Cleanup ve Redmine adımları aynı şekilde devam eder...
   - task: Kubernetes@1
-    displayName: '2b. Apply & Run Kaniko Pod'
-    inputs:
-      connectionType: 'None'
-      namespace: '$(k8sNamespace)'
-      command: 'apply'
-      arguments: '-f $(kanikoFinalFile)-kaniko-$(serviceName)'
+    displayName: '3b. Apply & Run Kaniko Pod'
+    inputs: { connectionType: 'None', namespace: '$(k8sNamespace)', command: 'apply', arguments: '-f $(kanikoFinalFile)-kaniko-$(serviceName)' }
 
   - task: Bash@3
-    displayName: '2c. Wait for Kaniko Pod to Complete & Get Logs'
+    displayName: '3c. Wait for Kaniko Pod to Complete & Get Logs'
     inputs:
       targetType: 'inline'
       script: |
         echo "Waiting for pod $(kanikoPodName) to start..."
-        while true; do
-          STATUS_CHECK=$(kubectl get pod $(kanikoPodName) -n $(k8sNamespace) -o jsonpath='{.status.containerStatuses[?(@.name=="kaniko")].state}' 2>/dev/null)
-          if [[ -n "$STATUS_CHECK" ]] && [[ ! "$STATUS_CHECK" =~ "waiting" ]]; then
-            echo "Container 'kaniko' has started. Attaching to log stream..."
-            break
-          fi
-          PHASE_CHECK=$(kubectl get pod $(kanikoPodName) -n $(k8sNamespace) -o jsonpath='{.status.phase}' 2>/dev/null)
-          if [[ "$PHASE_CHECK" == "Failed" ]] || [[ "$PHASE_CHECK" == "Succeeded" ]]; then
-             echo "Pod has already terminated with phase: $PHASE_CHECK. Getting final logs."
-             break
-          fi
-          echo "Kaniko pod is still initializing..."
-          sleep 5
-        done
-        
+        kubectl wait --for=condition=Ready pod/$(kanikoPodName) --timeout=15m -n $(k8sNamespace)
         kubectl logs $(kanikoPodName) -n $(k8sNamespace) -c kaniko --follow
 
   - task: Kubernetes@1
-    displayName: '2d. Cleanup Kaniko Pod'
+    displayName: '3d. Cleanup Kaniko Pod'
     condition: always()
-    inputs:
-      connectionType: 'None'
-      namespace: '$(k8sNamespace)'
-      command: 'delete'
-      arguments: 'pod/$(kanikoPodName) --ignore-not-found=true'
+    inputs: { connectionType: 'None', namespace: '$(k8sNamespace)', command: 'delete', arguments: 'pod/$(kanikoPodName) --ignore-not-found=true' }
+
 
   - task: Bash@3
     displayName: 'Update Redmine Issue'

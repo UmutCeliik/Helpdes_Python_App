@@ -1,18 +1,11 @@
 # azure-pipelines.yml
-# 'resources' bloğu en üst seviyeye (root) taşınmış son ve doğru hali.
-
 trigger:
   branches:
     include:
       - main
   paths:
-    include:
-      - 'user_service/*'
-      - 'ticket_service/*'
-      - 'auth_service/*'
-      - 'frontend/*'
-    exclude:
-      - README.md
+    include: ['user_service/*', 'ticket_service/*', 'auth_service/*', 'frontend/*']
+    exclude: [README.md]
 
 pool:
   name: 'RKE2'
@@ -35,8 +28,8 @@ variables:
   value: 'DockerHub'
 
 stages:
-- stage: Build_Services
-  displayName: 'Build and Push Service Images'
+- stage: Scan_And_Build_Services
+  displayName: 'Scan and Build Service Images'
   jobs:
   - job: DetectChanges
     displayName: '1. Detect Changed Services'
@@ -52,26 +45,31 @@ stages:
             chmod +x templates/detect-changes.sh
             ./templates/detect-changes.sh
 
+  # Artık build-service-job.yml'i doğrudan çağırıyoruz
   - template: templates/build-service-job.yml
     parameters:
       serviceName: 'user_service'
+      sonarProjectKey: 'helpdesk-user-service' # SonarQube proje anahtarı
       dependsOn: DetectChanges
       condition: eq(dependencies.DetectChanges.outputs['detect_changes_step.USER_SERVICE_CHANGED'], 'true')
 
   - template: templates/build-service-job.yml
     parameters:
       serviceName: 'ticket_service'
+      sonarProjectKey: 'helpdesk-ticket-service' # SonarQube proje anahtarı
       dependsOn: DetectChanges
       condition: eq(dependencies.DetectChanges.outputs['detect_changes_step.TICKET_SERVICE_CHANGED'], 'true')
 
   - template: templates/build-service-job.yml
     parameters:
       serviceName: 'auth_service'
+      sonarProjectKey: 'helpdesk-auth-service' # SonarQube proje anahtarı
       dependsOn: DetectChanges
       condition: eq(dependencies.DetectChanges.outputs['detect_changes_step.AUTH_SERVICE_CHANGED'], 'true')
 
   - template: templates/build-service-job.yml
     parameters:
       serviceName: 'frontend'
+      sonarProjectKey: 'helpdesk-frontend' # SonarQube proje anahtarı
       dependsOn: DetectChanges
       condition: eq(dependencies.DetectChanges.outputs['detect_changes_step.FRONTEND_CHANGED'], 'true')

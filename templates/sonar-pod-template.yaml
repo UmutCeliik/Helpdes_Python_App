@@ -1,0 +1,52 @@
+# templates/sonar-pod-template.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: __POD_NAME__
+spec:
+  volumes:
+  - name: workspace
+    emptyDir: {}
+
+  initContainers:
+  - name: git-checkout
+    image: alpine/git:latest
+    env:
+    - name: AZP_TOKEN
+      value: "__AZP_TOKEN__"
+    - name: GIT_REPO_URL
+      value: "__CONTEXT__"
+    command: ["/bin/sh", "-c"]
+    args:
+    - |
+      set -e
+      cd /workspace
+      CLONE_URL=$(echo $GIT_REPO_URL | sed "s,https://,https://$AZP_TOKEN@,")
+      git clone $CLONE_URL .
+    volumeMounts:
+    - name: workspace
+      mountPath: /workspace
+
+  containers:
+  - name: sonarqube-scanner
+    # SonarSource tarafından sağlanan resmi tarayıcı imajını kullanıyoruz
+    image: sonarsource/sonar-scanner-cli:latest
+    workingDir: /workspace/__CONTEXT_SUB_PATH__
+    env:
+      # Java'nın ek bellek seçeneklerine ihtiyaç duymaması için
+      - name: SONAR_SCANNER_OPTS
+        value: "-Duser.home=/tmp"
+    command: ["sonar-scanner"]
+    args:
+      # Tarayıcıya gerekli parametreleri burada iletiyoruz
+      - "-Dsonar.host.url=__SONAR_URL__"
+      - "-Dsonar.login=__SONAR_TOKEN__"
+      - "-Dsonar.projectKey=__PROJECT_KEY__"
+      - "-Dsonar.projectName=__PROJECT_KEY__"
+      - "-Dsonar.sources=."
+      - "-Dsonar.scm.disabled=true"
+      # Python ve JS/TS için ek ayarlar (gerekirse)
+      # - "-Dsonar.python.version=3.11"
+      # - "-Dsonar.javascript.lcov.reportPaths=coverage/lcov.info"
+
+  restartPolicy: Never
