@@ -35,45 +35,45 @@ spec:
       mountPath: /workspace
 
   # ... önceki kısımlar aynı ...
-containers:
-- name: sonarqube-scanner
-  image: sonarsource/sonar-scanner-cli:latest
-  workingDir: /workspace/__CONTEXT_SUB_PATH__
-  env:
-    - name: SONAR_SCANNER_OPTS
-      value: "-Duser.home=/tmp"
-    # JAVA_HOME'a yine de ihtiyacınız olabilir, eğer keytool komutu için doğru Java path'i ayarlanmamışsa.
-    # Ama önce aşağıdaki düzeltmeyi deneyin.
-  command: ["/bin/sh", "-c"]
-  args:
-  - |
-    set -e
-    echo "Importing SonarQube SSL certificate..."
+  containers:
+  - name: sonarqube-scanner
+    image: sonarsource/sonar-scanner-cli:latest
+    workingDir: /workspace/__CONTEXT_SUB_PATH__
+    env:
+      - name: SONAR_SCANNER_OPTS
+        value: "-Duser.home=/tmp"
+      # JAVA_HOME'a yine de ihtiyacınız olabilir, eğer keytool komutu için doğru Java path'i ayarlanmamışsa.
+      # Ama önce aşağıdaki düzeltmeyi deneyin.
+    command: ["/bin/sh", "-c"]
+    args:
+    - |
+      set -e
+      echo "Importing SonarQube SSL certificate..."
 
-    # OpenSSL ile sunucudan sertifikayı çek ve bir dosyaya kaydet
-    openssl s_client -showcerts -connect sonarqube.cloudpro.com.tr:443 </dev/null 2>/dev/null | openssl x509 -outform PEM > /tmp/sonar.pem
+      # OpenSSL ile sunucudan sertifikayı çek ve bir dosyaya kaydet
+      openssl s_client -showcerts -connect sonarqube.cloudpro.com.tr:443 </dev/null 2>/dev/null | openssl x509 -outform PEM > /tmp/sonar.pem
 
-    # BURAYI DÜZELTİN: 'keytool' komutundaki sertifika yolu düzeltildi.
-    # find komutu ile bulduğunuz doğru 'cacerts' yolunu buraya yazın.
-    # Örneğin:
-    CACERTS_PATH=$(find / -name cacerts 2>/dev/null | head -n 1) # Bulunan ilk cacerts yolunu al
-    if [ -z "$CACERTS_PATH" ]; then
-        echo "Error: cacerts file not found in the container!"
-        exit 1
-    fi
+      # BURAYI DÜZELTİN: 'keytool' komutundaki sertifika yolu düzeltildi.
+      # find komutu ile bulduğunuz doğru 'cacerts' yolunu buraya yazın.
+      # Örneğin:
+      CACERTS_PATH=$(find / -name cacerts 2>/dev/null | head -n 1) # Bulunan ilk cacerts yolunu al
+      if [ -z "$CACERTS_PATH" ]; then
+          echo "Error: cacerts file not found in the container!"
+          exit 1
+      fi
 
-    # Keytool komutunu doğru yolla çalıştırın
-    keytool -import -alias sonarqube-cert -keystore "$CACERTS_PATH" -file /tmp/sonar.pem -storepass changeit -noprompt
+      # Keytool komutunu doğru yolla çalıştırın
+      keytool -import -alias sonarqube-cert -keystore "$CACERTS_PATH" -file /tmp/sonar.pem -storepass changeit -noprompt
 
-    echo "Certificate imported. Starting SonarScanner..."
+      echo "Certificate imported. Starting SonarScanner..."
 
-    # Şimdi tarayıcıyı normal şekilde çalıştır
-    sonar-scanner \
-      -Dsonar.host.url=__SONAR_URL__ \
-      -Dsonar.login=__SONAR_TOKEN__ \
-      -Dsonar.projectKey=__PROJECT_KEY__ \
-      -Dsonar.projectName=__PROJECT_KEY__ \
-      -Dsonar.sources=. \
-      -Dsonar.scm.disabled=true
+      # Şimdi tarayıcıyı normal şekilde çalıştır
+      sonar-scanner \
+        -Dsonar.host.url=__SONAR_URL__ \
+        -Dsonar.login=__SONAR_TOKEN__ \
+        -Dsonar.projectKey=__PROJECT_KEY__ \
+        -Dsonar.projectName=__PROJECT_KEY__ \
+        -Dsonar.sources=. \
+        -Dsonar.scm.disabled=true
 
   restartPolicy: Never
