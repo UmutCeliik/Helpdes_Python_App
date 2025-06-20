@@ -1,5 +1,5 @@
 # templates/build-service-job.yml
-# YAML formatı temizlendi ve eksik değişken tanımı eklendi.
+# KESİN ÇÖZÜM: Job'a servis bağlantısı için kaynak erişim izni ekleniyor.
 
 parameters:
 - name: serviceName
@@ -20,17 +20,27 @@ jobs:
   condition: ${{ parameters.condition }}
   timeoutInMinutes: 45
 
+  # YENİ VE EN ÖNEMLİ ADIM: Bu blok, işin 'Sonar' adlı servis bağlantısını
+  # kullanma iznine sahip olduğunu beyan eder. Bu olmadan değişkenler okunamaz.
+  resources:
+    repositories:
+    - repository: self
+    endpoints:
+    - endpoint: Sonar # Kullandığınız servis bağlantısının adı
+      type: sonarqube
+
   variables:
     serviceName: ${{ parameters.serviceName }}
-    # DÜZELTME: Eksik olan sonarProjectKey değişkeni buraya eklendi.
-    # Bu satır, parametreyi script içinde kullanılabilir hale getirir.
     sonarProjectKey: ${{ parameters.sonarProjectKey }}
 
   steps:
+  - checkout: self # Kaynakları kullanabilmek için checkout adımı burada olmalı
+
   # ===================================================================
-  # BÖLÜM 1: SCA TARAMA POD'U
+  # BÖLÜM 1: SCA TARAMA POD'U (Değişiklik yok)
   # ===================================================================
   - task: Bash@3
+    # ... Bu bölüm önceki gibi aynı kalıyor ...
     name: PrepareScaManifest
     displayName: '1a. Prepare SCA Pod Manifest'
     env:
@@ -63,10 +73,8 @@ jobs:
   - task: Bash@3
     name: PrepareSonarManifest
     displayName: '2a. Prepare SonarQube Pod Manifest'
-    # NİHAİ ÇÖZÜM: Değişkenleri env bloğunda basit isimlere atıyoruz.
-    # Bu, Azure DevOps'un script içindeki yorumlama sorunlarını tamamen çözer.
     env:
-      # Pipeline değişkenlerini (noktalı isimler) al...
+      # Değişkenleri en güvenilir yöntemle tekrar tanımlıyoruz
       AZP_TOKEN_FROM_PIPELINE: $(System.AccessToken)
       SONAR_URL_FROM_PIPELINE: $(Sonar.Url)
       SONAR_TOKEN_FROM_PIPELINE: $(Sonar.Token)
@@ -76,7 +84,6 @@ jobs:
       script: |
         echo "Preparing SonarQube manifest for service: $(serviceName)..."
         
-        # ...ve script içinde bu basit isimleri kullanıyoruz.
         echo "--- Verifying variables before use ---"
         echo "Sonar URL is: $SONAR_URL_FROM_PIPELINE"
         echo "Sonar Project Key is: $SONAR_KEY_FROM_PIPELINE"
@@ -87,7 +94,6 @@ jobs:
 
         cp templates/sonar-pod-template.yaml "$(kanikoFinalFile)-sonar-$(serviceName)"
 
-        # `sed` komutlarında sadece basit shell değişkenlerini kullanıyoruz.
         sed -i "s|__POD_NAME__|$sonarPodName|g" "$(kanikoFinalFile)-sonar-$(serviceName)"
         sed -i "s|__CONTEXT__|$(gitRepoUrl)|g" "$(kanikoFinalFile)-sonar-$(serviceName)"
         sed -i "s|__CONTEXT_SUB_PATH__|$(serviceName)|g" "$(kanikoFinalFile)-sonar-$(serviceName)"
@@ -95,7 +101,8 @@ jobs:
         sed -i "s|__SONAR_URL__|$SONAR_URL_FROM_PIPELINE|g" "$(kanikoFinalFile)-sonar-$(serviceName)"
         sed -i "s|__SONAR_TOKEN__|$SONAR_TOKEN_FROM_PIPELINE|g" "$(kanikoFinalFile)-sonar-$(serviceName)"
         sed -i "s|__PROJECT_KEY__|$SONAR_KEY_FROM_PIPELINE|g" "$(kanikoFinalFile)-sonar-$(serviceName)"
-
+  
+  # ... Diğer tüm adımlar (Sonar pod'u çalıştırma, Kaniko vb.) aynı kalır ...
   - task: Kubernetes@1
     displayName: '2b. Apply & Run SonarQube Pod'
     inputs: { connectionType: 'None', namespace: '$(k8sNamespace)', command: 'apply', arguments: '-f $(kanikoFinalFile)-sonar-$(serviceName)' }
@@ -117,7 +124,8 @@ jobs:
   # ===================================================================
   - task: Bash@3
     name: PrepareKanikoManifest
-    displayName: '3a. Prepare Kaniko Pod Manifest'
+    # ... KANIKO adımları aynı şekilde devam eder ...
+    displayName: '3a. Prepare Kaniko Manifest'
     env:
       AZP_TOKEN: $(System.AccessToken)
     inputs:
