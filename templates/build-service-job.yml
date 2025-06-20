@@ -109,8 +109,8 @@ jobs:
     displayName: '2a. Prepare SonarQube Pod Manifest'
     env:
       AZP_TOKEN: $(System.AccessToken)
-      SONAR_URL: $(SonarQube-Connection.Url) # Servis bağlantısından URL'yi al
-      SONAR_TOKEN: $(SonarQube-Connection.Token) # Servis bağlantısından Token'ı al
+      SONAR_URL: $(Sonar.Url) # Servis bağlantısından URL'yi al
+      SONAR_TOKEN: $(Sonar.Token) # Servis bağlantısından Token'ı al
     inputs:
       targetType: 'inline'
       script: |
