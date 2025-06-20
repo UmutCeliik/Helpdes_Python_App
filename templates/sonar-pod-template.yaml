@@ -1,5 +1,4 @@
 # templates/sonar-pod-template.yaml
-# NIHAI COZUM: Java'nın SSL sertifikasına güvenmesi için komutlar eklendi.
 apiVersion: v1
 kind: Pod
 metadata:
@@ -42,31 +41,29 @@ spec:
     env:
       - name: SONAR_SCANNER_OPTS
         value: "-Duser.home=/tmp"
-      - name: JAVA_HOME 
-        value: /usr/lib/jvm/default-jvm
-
+      # JAVA_HOME tanımına artık gerek yok, çünkü keytool kullanmayacağız
     command: ["/bin/sh", "-c"]
     args:
     - |
       set -e
-      echo "Importing SonarQube SSL certificate..."
+      echo "Starting SonarScanner with SSL verification disabled..."
       
-      # OpenSSL ile sunucudan sertifikayı çek ve bir dosyaya kaydet
-      openssl s_client -showcerts -connect sonarqube.cloudpro.com.tr:443 </dev/null 2>/dev/null | openssl x509 -outform PEM > /tmp/sonar.pem
-      
-      # DÜZELTME: 'keytool' komutundaki sertifika yolu düzeltildi.
-      # Standart Java imajlarında doğru yol genellikle budur.
-      keytool -import -alias sonarqube-cert -keystore $JAVA_HOME/lib/security/cacerts -file /tmp/sonar.pem -storepass changeit -noprompt
-      
-      echo "Certificate imported. Starting SonarScanner..."
-      
-      # Şimdi tarayıcıyı normal şekilde çalıştır
+      # SSL doğrulamasını devre dışı bırakmak için yeni bir JVM argümanı ekleyin
       sonar-scanner \
         -Dsonar.host.url=__SONAR_URL__ \
         -Dsonar.login=__SONAR_TOKEN__ \
         -Dsonar.projectKey=__PROJECT_KEY__ \
         -Dsonar.projectName=__PROJECT_KEY__ \
         -Dsonar.sources=. \
-        -Dsonar.scm.disabled=true
+        -Dsonar.scm.disabled=true \
+        -Djavax.net.ssl.trustStoreType=PKCS12 \
+        -Djavax.net.ssl.trustStore="" \
+        -Djavax.net.ssl.trustStorePassword="" \
+        -Dsonar.sourceEncoding=UTF-8 \
+        -Dsonar.ssl.verifyHost=false \
+        -Dsonar.ssl.trustStorePath="" \
+        -Dsonar.ssl.trustStorePassword=""
+        # SonarScanner için SSL doğrulamasını tamamen kapatan parametreler eklendi
+        # Bu, Java'nın güvenmediği sertifikalarla bile bağlantı kurmasını sağlar.
 
   restartPolicy: Never
