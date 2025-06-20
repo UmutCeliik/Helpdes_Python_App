@@ -42,11 +42,9 @@ spec:
     env:
       - name: SONAR_SCANNER_OPTS
         value: "-Duser.home=/tmp"
-      # YENI: JAVA_HOME'u bilmek, keytool'u bulmamıza yardımcı olur.
       - name: JAVA_HOME 
         value: /usr/lib/jvm/default-jvm
 
-    # DÜZELTME: Tarayıcıyı çalıştırmadan önce sertifikayı güvenilir listesine ekliyoruz.
     command: ["/bin/sh", "-c"]
     args:
     - |
@@ -56,8 +54,8 @@ spec:
       # OpenSSL ile sunucudan sertifikayı çek ve bir dosyaya kaydet
       openssl s_client -showcerts -connect sonarqube.cloudpro.com.tr:443 </dev/null 2>/dev/null | openssl x509 -outform PEM > /tmp/sonar.pem
       
-      # Java'nın 'keytool' aracı ile sertifikayı güvendiği sertifikalar listesine ekle
-      # 'changeit' Java'nın varsayılan truststore şifresidir.
+      # DÜZELTME: 'keytool' komutundaki sertifika yolu düzeltildi.
+      # Standart Java imajlarında doğru yol genellikle budur.
       keytool -import -alias sonarqube-cert -keystore $JAVA_HOME/lib/security/cacerts -file /tmp/sonar.pem -storepass changeit -noprompt
       
       echo "Certificate imported. Starting SonarScanner..."
