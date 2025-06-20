@@ -59,51 +59,51 @@ jobs:
     condition: always()
     inputs: { connectionType: 'None', namespace: '$(k8sNamespace)', command: 'delete', arguments: 'pod/$(scaPodName) --ignore-not-found=true' }
 
-  # # ===================================================================
-  # # BÖLÜM 2: SONARQUBE TARAMA POD'U
-  # # ===================================================================
-  # - task: Bash@3
-  #   name: PrepareSonarManifest
-  #   displayName: '2a. Prepare SonarQube Pod Manifest'
-  #   env:
-  #     # DÜZELTME: Library'den gelen değişkenleri basit shell değişkenlerine atıyoruz.
-  #     AZP_TOKEN_FROM_PIPELINE: $(System.AccessToken)
-  #     SONAR_URL_FROM_PIPELINE: $(SONAR_URL)
-  #     SONAR_TOKEN_FROM_PIPELINE: $(SONAR_TOKEN)
-  #     SONAR_KEY_FROM_PIPELINE: $(sonarProjectKey)
-  #   inputs:
-  #     targetType: 'inline'
-  #     script: |
-  #       echo "Preparing SonarQube manifest for service: $(serviceName)..."
-  #       echo "--- Verifying variables from Library ---"
-  #       echo "Sonar URL is: $SONAR_URL_FROM_PIPELINE"
-  #       echo "Sonar Project Key is: $SONAR_KEY_FROM_PIPELINE"
+  # ===================================================================
+  # BÖLÜM 2: SONARQUBE TARAMA POD'U
+  # ===================================================================
+  - task: Bash@3
+    name: PrepareSonarManifest
+    displayName: '2a. Prepare SonarQube Pod Manifest'
+    env:
+      # DÜZELTME: Library'den gelen değişkenleri basit shell değişkenlerine atıyoruz.
+      AZP_TOKEN_FROM_PIPELINE: $(System.AccessToken)
+      SONAR_URL_FROM_PIPELINE: $(SONAR_URL)
+      SONAR_TOKEN_FROM_PIPELINE: $(SONAR_TOKEN)
+      SONAR_KEY_FROM_PIPELINE: $(sonarProjectKey)
+    inputs:
+      targetType: 'inline'
+      script: |
+        echo "Preparing SonarQube manifest for service: $(serviceName)..."
+        echo "--- Verifying variables from Library ---"
+        echo "Sonar URL is: $SONAR_URL_FROM_PIPELINE"
+        echo "Sonar Project Key is: $SONAR_KEY_FROM_PIPELINE"
         
-  #       safePodSuffix=$(echo "$(serviceName)" | sed 's/_/-/g')
-  #       sonarPodName="sonar-$(imageTag)-$safePodSuffix"
-  #       echo "##vso[task.setvariable variable=sonarPodName]$sonarPodName"
-  #       cp templates/sonar-pod-template.yaml "$(kanikoFinalFile)-sonar-$(serviceName)"
-  #       sed -i "s|__POD_NAME__|$sonarPodName|g" "$(kanikoFinalFile)-sonar-$(serviceName)"
-  #       sed -i "s|__CONTEXT__|$(gitRepoUrl)|g" "$(kanikoFinalFile)-sonar-$(serviceName)"
-  #       sed -i "s|__CONTEXT_SUB_PATH__|$(serviceName)|g" "$(kanikoFinalFile)-sonar-$(serviceName)"
-  #       sed -i "s|__AZP_TOKEN__|$AZP_TOKEN_FROM_PIPELINE|g" "$(kanikoFinalFile)-sonar-$(serviceName)"
-  #       sed -i "s|__SONAR_URL__|$SONAR_URL_FROM_PIPELINE|g" "$(kanikoFinalFile)-sonar-$(serviceName)"
-  #       sed -i "s|__SONAR_TOKEN__|$SONAR_TOKEN_FROM_PIPELINE|g" "$(kanikoFinalFile)-sonar-$(serviceName)"
-  #       sed -i "s|__PROJECT_KEY__|$SONAR_KEY_FROM_PIPELINE|g" "$(kanikoFinalFile)-sonar-$(serviceName)"
-  # # ... Diğer SonarQube adımları aynı kalır ...
-  # - task: Kubernetes@1
-  #   displayName: '2b. Apply & Run SonarQube Pod'
-  #   inputs: { connectionType: 'None', namespace: '$(k8sNamespace)', command: 'apply', arguments: '-f $(kanikoFinalFile)-sonar-$(serviceName)' }
-  # - task: Bash@3
-  #   displayName: '2c. Wait for SonarQube Pod to Complete & Get Logs'
-  #   inputs:
-  #     targetType: 'inline'
-  #     script: |
-  #       echo "Waiting for pod $(sonarPodName) to finish..."; kubectl wait --for=condition=Ready pod/$(sonarPodName) --timeout=5m -n $(k8sNamespace); kubectl logs $(sonarPodName) -n $(k8sNamespace) -c sonarqube-scanner --follow
-  # - task: Kubernetes@1
-  #   displayName: '2d. Cleanup SonarQube Pod'
-  #   condition: always()
-  #   inputs: { connectionType: 'None', namespace: '$(k8sNamespace)', command: 'delete', arguments: 'pod/$(sonarPodName) --ignore-not-found=true' }
+        safePodSuffix=$(echo "$(serviceName)" | sed 's/_/-/g')
+        sonarPodName="sonar-$(imageTag)-$safePodSuffix"
+        echo "##vso[task.setvariable variable=sonarPodName]$sonarPodName"
+        cp templates/sonar-pod-template.yaml "$(kanikoFinalFile)-sonar-$(serviceName)"
+        sed -i "s|__POD_NAME__|$sonarPodName|g" "$(kanikoFinalFile)-sonar-$(serviceName)"
+        sed -i "s|__CONTEXT__|$(gitRepoUrl)|g" "$(kanikoFinalFile)-sonar-$(serviceName)"
+        sed -i "s|__CONTEXT_SUB_PATH__|$(serviceName)|g" "$(kanikoFinalFile)-sonar-$(serviceName)"
+        sed -i "s|__AZP_TOKEN__|$AZP_TOKEN_FROM_PIPELINE|g" "$(kanikoFinalFile)-sonar-$(serviceName)"
+        sed -i "s|__SONAR_URL__|$SONAR_URL_FROM_PIPELINE|g" "$(kanikoFinalFile)-sonar-$(serviceName)"
+        sed -i "s|__SONAR_TOKEN__|$SONAR_TOKEN_FROM_PIPELINE|g" "$(kanikoFinalFile)-sonar-$(serviceName)"
+        sed -i "s|__PROJECT_KEY__|$SONAR_KEY_FROM_PIPELINE|g" "$(kanikoFinalFile)-sonar-$(serviceName)"
+  # ... Diğer SonarQube adımları aynı kalır ...
+  - task: Kubernetes@1
+    displayName: '2b. Apply & Run SonarQube Pod'
+    inputs: { connectionType: 'None', namespace: '$(k8sNamespace)', command: 'apply', arguments: '-f $(kanikoFinalFile)-sonar-$(serviceName)' }
+  - task: Bash@3
+    displayName: '2c. Wait for SonarQube Pod to Complete & Get Logs'
+    inputs:
+      targetType: 'inline'
+      script: |
+        echo "Waiting for pod $(sonarPodName) to finish..."; kubectl wait --for=condition=Ready pod/$(sonarPodName) --timeout=5m -n $(k8sNamespace); kubectl logs $(sonarPodName) -n $(k8sNamespace) -c sonarqube-scanner --follow
+  - task: Kubernetes@1
+    displayName: '2d. Cleanup SonarQube Pod'
+    condition: always()
+    inputs: { connectionType: 'None', namespace: '$(k8sNamespace)', command: 'delete', arguments: 'pod/$(sonarPodName) --ignore-not-found=true' }
 
   # ===================================================================
   # BÖLÜM 3: KANIKO BUILD POD'U
