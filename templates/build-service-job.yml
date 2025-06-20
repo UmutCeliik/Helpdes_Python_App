@@ -63,37 +63,38 @@ jobs:
   - task: Bash@3
     name: PrepareSonarManifest
     displayName: '2a. Prepare SonarQube Pod Manifest'
-    # env: bloğunu bu görev için basitleştiriyoruz.
+    # NİHAİ ÇÖZÜM: Değişkenleri env bloğunda basit isimlere atıyoruz.
+    # Bu, Azure DevOps'un script içindeki yorumlama sorunlarını tamamen çözer.
     env:
-      AZP_TOKEN: $(System.AccessToken)
+      # Pipeline değişkenlerini (noktalı isimler) al...
+      AZP_TOKEN_FROM_PIPELINE: $(System.AccessToken)
+      SONAR_URL_FROM_PIPELINE: $(Sonar.Url)
+      SONAR_TOKEN_FROM_PIPELINE: $(Sonar.Token)
+      SONAR_KEY_FROM_PIPELINE: $(sonarProjectKey)
     inputs:
       targetType: 'inline'
       script: |
         echo "Preparing SonarQube manifest for service: $(serviceName)..."
         
-        # --- DEBUG İÇİN EKLENDİ ---
-        # Değişkenlerin doğru okunup okunmadığını kontrol edelim.
-        echo "--- DEBUGGING PIPELINE VARIABLES ---"
-        echo "Service Connection URL is: $(Sonar.Url)"
-        echo "Service Connection Token is present: $(if $(Sonar.Token), 'Yes', 'No')"
-        echo "SonarQube Project Key is: $(sonarProjectKey)"
-        echo "--- END DEBUG ---"
-
+        # ...ve script içinde bu basit isimleri kullanıyoruz.
+        echo "--- Verifying variables before use ---"
+        echo "Sonar URL is: $SONAR_URL_FROM_PIPELINE"
+        echo "Sonar Project Key is: $SONAR_KEY_FROM_PIPELINE"
+        
         safePodSuffix=$(echo "$(serviceName)" | sed 's/_/-/g')
         sonarPodName="sonar-$(imageTag)-$safePodSuffix"
         echo "##vso[task.setvariable variable=sonarPodName]$sonarPodName"
 
         cp templates/sonar-pod-template.yaml "$(kanikoFinalFile)-sonar-$(serviceName)"
 
-        # DÜZELTME: Değişkenleri script içinde doğrudan kullanıyoruz.
-        # Bu, `env:` bloğundaki olası yorumlama sorunlarını ortadan kaldırır.
+        # `sed` komutlarında sadece basit shell değişkenlerini kullanıyoruz.
         sed -i "s|__POD_NAME__|$sonarPodName|g" "$(kanikoFinalFile)-sonar-$(serviceName)"
         sed -i "s|__CONTEXT__|$(gitRepoUrl)|g" "$(kanikoFinalFile)-sonar-$(serviceName)"
         sed -i "s|__CONTEXT_SUB_PATH__|$(serviceName)|g" "$(kanikoFinalFile)-sonar-$(serviceName)"
-        sed -i "s|__AZP_TOKEN__|$(AZP_TOKEN)|g" "$(kanikoFinalFile)-sonar-$(serviceName)"
-        sed -i "s|__SONAR_URL__|$(Sonar.Url)|g" "$(kanikoFinalFile)-sonar-$(serviceName)"
-        sed -i "s|__SONAR_TOKEN__|$(Sonar.Token)|g" "$(kanikoFinalFile)-sonar-$(serviceName)"
-        sed -i "s|__PROJECT_KEY__|$(sonarProjectKey)|g" "$(kanikoFinalFile)-sonar-$(serviceName)"
+        sed -i "s|__AZP_TOKEN__|$AZP_TOKEN_FROM_PIPELINE|g" "$(kanikoFinalFile)-sonar-$(serviceName)"
+        sed -i "s|__SONAR_URL__|$SONAR_URL_FROM_PIPELINE|g" "$(kanikoFinalFile)-sonar-$(serviceName)"
+        sed -i "s|__SONAR_TOKEN__|$SONAR_TOKEN_FROM_PIPELINE|g" "$(kanikoFinalFile)-sonar-$(serviceName)"
+        sed -i "s|__PROJECT_KEY__|$SONAR_KEY_FROM_PIPELINE|g" "$(kanikoFinalFile)-sonar-$(serviceName)"
 
   - task: Kubernetes@1
     displayName: '2b. Apply & Run SonarQube Pod'
