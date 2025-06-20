@@ -27,37 +27,37 @@ jobs:
   steps:
   - checkout: self
 
-  # ===================================================================
-  # BÖLÜM 1: SCA TARAMA POD'U (Değişiklik Yok)
-  # ===================================================================
-  - task: Bash@3
-    # ... Bu bölüm önceki gibi aynı kalıyor ...
-    name: PrepareScaManifest
-    displayName: '1a. Prepare SCA Pod Manifest'
-    env:
-      AZP_TOKEN: $(System.AccessToken)
-    inputs:
-      targetType: 'inline'
-      script: |
-        echo "Preparing SCA manifest for service: $(serviceName)..."
-        if [[ "$(serviceName)" == "frontend" ]]; then SCANNER_IMAGE="node:20-slim"; SERVICE_TYPE="frontend"; else SCANNER_IMAGE="python:3.11-slim"; SERVICE_TYPE="backend"; fi
-        safePodSuffix=$(echo "$(serviceName)" | sed 's/_/-/g'); scaPodName="sca-$(imageTag)-$safePodSuffix"; echo "##vso[task.setvariable variable=scaPodName]$scaPodName"
-        cp templates/sca-pod-template.yaml "$(kanikoFinalFile)-sca-$(serviceName)"
-        sed -i "s|__POD_NAME__|$scaPodName|g" "$(kanikoFinalFile)-sca-$(serviceName)"; sed -i "s|__CONTEXT__|$(gitRepoUrl)|g" "$(kanikoFinalFile)-sca-$(serviceName)"; sed -i "s|__CONTEXT_SUB_PATH__|$(serviceName)|g" "$(kanikoFinalFile)-sca-$(serviceName)"; sed -i "s|__AZP_TOKEN__|$AZP_TOKEN|g" "$(kanikoFinalFile)-sca-$(serviceName)"; sed -i "s|__SCANNER_IMAGE__|$SCANNER_IMAGE|g" "$(kanikoFinalFile)-sca-$(serviceName)"; sed -i "s|__SERVICE_TYPE__|$SERVICE_TYPE|g" "$(kanikoFinalFile)-sca-$(serviceName)"
-  # ... Diğer SCA adımları aynı kalır ...
-  - task: Kubernetes@1
-    displayName: '1b. Apply & Run SCA Pod'
-    inputs: { connectionType: 'None', namespace: '$(k8sNamespace)', command: 'apply', arguments: '-f $(kanikoFinalFile)-sca-$(serviceName)' }
-  - task: Bash@3
-    displayName: '1c. Wait for SCA Pod to Complete & Get Logs'
-    inputs:
-      targetType: 'inline'
-      script: |
-        echo "Waiting for pod $(scaPodName) to finish..."; kubectl wait --for=condition=Ready pod/$(scaPodName) --timeout=5m -n $(k8sNamespace); kubectl logs $(scaPodName) -n $(k8sNamespace) -c scanner --follow
-  - task: Kubernetes@1
-    displayName: '1d. Cleanup SCA Pod'
-    condition: always()
-    inputs: { connectionType: 'None', namespace: '$(k8sNamespace)', command: 'delete', arguments: 'pod/$(scaPodName) --ignore-not-found=true' }
+  # # ===================================================================
+  # # BÖLÜM 1: SCA TARAMA POD'U (Değişiklik Yok)
+  # # ===================================================================
+  # - task: Bash@3
+  #   # ... Bu bölüm önceki gibi aynı kalıyor ...
+  #   name: PrepareScaManifest
+  #   displayName: '1a. Prepare SCA Pod Manifest'
+  #   env:
+  #     AZP_TOKEN: $(System.AccessToken)
+  #   inputs:
+  #     targetType: 'inline'
+  #     script: |
+  #       echo "Preparing SCA manifest for service: $(serviceName)..."
+  #       if [[ "$(serviceName)" == "frontend" ]]; then SCANNER_IMAGE="node:20-slim"; SERVICE_TYPE="frontend"; else SCANNER_IMAGE="python:3.11-slim"; SERVICE_TYPE="backend"; fi
+  #       safePodSuffix=$(echo "$(serviceName)" | sed 's/_/-/g'); scaPodName="sca-$(imageTag)-$safePodSuffix"; echo "##vso[task.setvariable variable=scaPodName]$scaPodName"
+  #       cp templates/sca-pod-template.yaml "$(kanikoFinalFile)-sca-$(serviceName)"
+  #       sed -i "s|__POD_NAME__|$scaPodName|g" "$(kanikoFinalFile)-sca-$(serviceName)"; sed -i "s|__CONTEXT__|$(gitRepoUrl)|g" "$(kanikoFinalFile)-sca-$(serviceName)"; sed -i "s|__CONTEXT_SUB_PATH__|$(serviceName)|g" "$(kanikoFinalFile)-sca-$(serviceName)"; sed -i "s|__AZP_TOKEN__|$AZP_TOKEN|g" "$(kanikoFinalFile)-sca-$(serviceName)"; sed -i "s|__SCANNER_IMAGE__|$SCANNER_IMAGE|g" "$(kanikoFinalFile)-sca-$(serviceName)"; sed -i "s|__SERVICE_TYPE__|$SERVICE_TYPE|g" "$(kanikoFinalFile)-sca-$(serviceName)"
+  # # ... Diğer SCA adımları aynı kalır ...
+  # - task: Kubernetes@1
+  #   displayName: '1b. Apply & Run SCA Pod'
+  #   inputs: { connectionType: 'None', namespace: '$(k8sNamespace)', command: 'apply', arguments: '-f $(kanikoFinalFile)-sca-$(serviceName)' }
+  # - task: Bash@3
+  #   displayName: '1c. Wait for SCA Pod to Complete & Get Logs'
+  #   inputs:
+  #     targetType: 'inline'
+  #     script: |
+  #       echo "Waiting for pod $(scaPodName) to finish..."; kubectl wait --for=condition=Ready pod/$(scaPodName) --timeout=5m -n $(k8sNamespace); kubectl logs $(scaPodName) -n $(k8sNamespace) -c scanner --follow
+  # - task: Kubernetes@1
+  #   displayName: '1d. Cleanup SCA Pod'
+  #   condition: always()
+  #   inputs: { connectionType: 'None', namespace: '$(k8sNamespace)', command: 'delete', arguments: 'pod/$(scaPodName) --ignore-not-found=true' }
 
   # ===================================================================
   # BÖLÜM 2: SONARQUBE TARAMA POD'U
@@ -105,40 +105,40 @@ jobs:
     condition: always()
     inputs: { connectionType: 'None', namespace: '$(k8sNamespace)', command: 'delete', arguments: 'pod/$(sonarPodName) --ignore-not-found=true' }
 
-  # ===================================================================
-  # BÖLÜM 3: KANIKO BUILD POD'U
-  # ===================================================================
-  # ... KANIKO ve Redmine adımları aynı şekilde devam eder ...
-  - task: Bash@3
-    name: PrepareKanikoManifest
-    displayName: '3a. Prepare Kaniko Manifest'
-    env:
-      AZP_TOKEN: $(System.AccessToken)
-    inputs:
-      targetType: 'inline'
-      script: |
-        safePodSuffix=$(echo "$(serviceName)" | sed 's/_/-/g'); kanikoPodName="kaniko-build-$(imageTag)-$safePodSuffix"; echo "##vso[task.setvariable variable=kanikoPodName]$kanikoPodName"
-        cp "$(kanikoTemplateFile)" "$(kanikoFinalFile)-kaniko-$(serviceName)"; sed -i "s|__POD_NAME__|$kanikoPodName|g" "$(kanikoFinalFile)-kaniko-$(serviceName)"; sed -i "s|__CONTEXT__|$(gitRepoUrl)|g" "$(kanikoFinalFile)-kaniko-$(serviceName)"; sed -i "s|__CONTEXT_SUB_PATH__|$(serviceName)|g" "$(kanikoFinalFile)-kaniko-$(serviceName)"; sed -i "s|__DESTINATION_TAG__|$(harborRepo)/$(serviceName):$(imageTag)|g" "$(kanikoFinalFile)-kaniko-$(serviceName)"; sed -i "s|__AZP_TOKEN__|$AZP_TOKEN|g" "$(kanikoFinalFile)-kaniko-$(serviceName)"
-  - task: Kubernetes@1
-    displayName: '3b. Apply & Run Kaniko Pod'
-    inputs: { connectionType: 'None', namespace: '$(k8sNamespace)', command: 'apply', arguments: '-f $(kanikoFinalFile)-kaniko-$(serviceName)' }
-  - task: Bash@3
-    displayName: '3c. Wait for Kaniko Pod to Complete & Get Logs'
-    inputs:
-      targetType: 'inline'
-      script: |
-        echo "Waiting for pod $(kanikoPodName) to start..."; kubectl wait --for=condition=Ready pod/$(kanikoPodName) --timeout=15m -n $(k8sNamespace); kubectl logs $(kanikoPodName) -n $(k8sNamespace) -c kaniko --follow
-  - task: Kubernetes@1
-    displayName: '3d. Cleanup Kaniko Pod'
-    condition: always()
-    inputs: { connectionType: 'None', namespace: '$(k8sNamespace)', command: 'delete', arguments: 'pod/$(kanikoPodName) --ignore-not-found=true' }
-  - task: Bash@3
-    displayName: 'Update Redmine Issue'
-    condition: succeeded()
-    inputs:
-      targetType: 'inline'
-      script: |
-        ISSUE_ID=$(git log -1 --pretty=%B | grep -o '#[0-9]*' | sed 's/#//'); if [ -z "$ISSUE_ID" ]; then echo "Commit mesajında Redmine issue ID'si bulunamadı."; exit 0; fi; echo "Redmine Issue #$ISSUE_ID güncelleniyor..."; STATUS_ID_IN_PROGRESS=2; JSON_PAYLOAD=$(cat <<EOF
-        { "issue": { "notes": "CI pipeline, $(serviceName) servisi için başarıyla tamamlandı. Build: $(Build.BuildId). Link: $(System.TeamFoundationCollectionUri)$(System.TeamProject)/_build/results?buildId=$(Build.BuildId)", "status_id": $STATUS_ID_IN_PROGRESS } }
-        EOF
-        ); HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X PUT -H "Content-Type: application/json" -H "X-Redmine-API-Key: $(REDMINE_API_KEY)" -d "$JSON_PAYLOAD" "$(REDMINE_URL)/issues/$ISSUE_ID.json"); if [ "$HTTP_STATUS" -ge 200 ] && [ "$HTTP_STATUS" -lt 300 ]; then echo "Redmine Issue #$ISSUE_ID başarıyla güncellendi. (HTTP Status: $HTTP_STATUS)"; else echo "##vso[task.logissue type=error]Redmine Issue güncellenirken hata oluştu. HTTP Status: $HTTP_STATUS"; exit 1; fi
+  # # ===================================================================
+  # # BÖLÜM 3: KANIKO BUILD POD'U
+  # # ===================================================================
+  # # ... KANIKO ve Redmine adımları aynı şekilde devam eder ...
+  # - task: Bash@3
+  #   name: PrepareKanikoManifest
+  #   displayName: '3a. Prepare Kaniko Manifest'
+  #   env:
+  #     AZP_TOKEN: $(System.AccessToken)
+  #   inputs:
+  #     targetType: 'inline'
+  #     script: |
+  #       safePodSuffix=$(echo "$(serviceName)" | sed 's/_/-/g'); kanikoPodName="kaniko-build-$(imageTag)-$safePodSuffix"; echo "##vso[task.setvariable variable=kanikoPodName]$kanikoPodName"
+  #       cp "$(kanikoTemplateFile)" "$(kanikoFinalFile)-kaniko-$(serviceName)"; sed -i "s|__POD_NAME__|$kanikoPodName|g" "$(kanikoFinalFile)-kaniko-$(serviceName)"; sed -i "s|__CONTEXT__|$(gitRepoUrl)|g" "$(kanikoFinalFile)-kaniko-$(serviceName)"; sed -i "s|__CONTEXT_SUB_PATH__|$(serviceName)|g" "$(kanikoFinalFile)-kaniko-$(serviceName)"; sed -i "s|__DESTINATION_TAG__|$(harborRepo)/$(serviceName):$(imageTag)|g" "$(kanikoFinalFile)-kaniko-$(serviceName)"; sed -i "s|__AZP_TOKEN__|$AZP_TOKEN|g" "$(kanikoFinalFile)-kaniko-$(serviceName)"
+  # - task: Kubernetes@1
+  #   displayName: '3b. Apply & Run Kaniko Pod'
+  #   inputs: { connectionType: 'None', namespace: '$(k8sNamespace)', command: 'apply', arguments: '-f $(kanikoFinalFile)-kaniko-$(serviceName)' }
+  # - task: Bash@3
+  #   displayName: '3c. Wait for Kaniko Pod to Complete & Get Logs'
+  #   inputs:
+  #     targetType: 'inline'
+  #     script: |
+  #       echo "Waiting for pod $(kanikoPodName) to start..."; kubectl wait --for=condition=Ready pod/$(kanikoPodName) --timeout=15m -n $(k8sNamespace); kubectl logs $(kanikoPodName) -n $(k8sNamespace) -c kaniko --follow
+  # - task: Kubernetes@1
+  #   displayName: '3d. Cleanup Kaniko Pod'
+  #   condition: always()
+  #   inputs: { connectionType: 'None', namespace: '$(k8sNamespace)', command: 'delete', arguments: 'pod/$(kanikoPodName) --ignore-not-found=true' }
+  # - task: Bash@3
+  #   displayName: 'Update Redmine Issue'
+  #   condition: succeeded()
+  #   inputs:
+  #     targetType: 'inline'
+  #     script: |
+  #       ISSUE_ID=$(git log -1 --pretty=%B | grep -o '#[0-9]*' | sed 's/#//'); if [ -z "$ISSUE_ID" ]; then echo "Commit mesajında Redmine issue ID'si bulunamadı."; exit 0; fi; echo "Redmine Issue #$ISSUE_ID güncelleniyor..."; STATUS_ID_IN_PROGRESS=2; JSON_PAYLOAD=$(cat <<EOF
+  #       { "issue": { "notes": "CI pipeline, $(serviceName) servisi için başarıyla tamamlandı. Build: $(Build.BuildId). Link: $(System.TeamFoundationCollectionUri)$(System.TeamProject)/_build/results?buildId=$(Build.BuildId)", "status_id": $STATUS_ID_IN_PROGRESS } }
+  #       EOF
+  #       ); HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X PUT -H "Content-Type: application/json" -H "X-Redmine-API-Key: $(REDMINE_API_KEY)" -d "$JSON_PAYLOAD" "$(REDMINE_URL)/issues/$ISSUE_ID.json"); if [ "$HTTP_STATUS" -ge 200 ] && [ "$HTTP_STATUS" -lt 300 ]; then echo "Redmine Issue #$ISSUE_ID başarıyla güncellendi. (HTTP Status: $HTTP_STATUS)"; else echo "##vso[task.logissue type=error]Redmine Issue güncellenirken hata oluştu. HTTP Status: $HTTP_STATUS"; exit 1; fi
