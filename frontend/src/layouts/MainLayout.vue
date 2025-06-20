@@ -11,7 +11,7 @@
       <v-list dense nav>
         <v-list-item v-if="drawer && !rail" class="pa-2 mb-2">
             <v-list-item-title class="text-h6 font-weight-bold ml-1">
-                Firma Helpdesk
+                Serhat Baba
             </v-list-item-title>
         </v-list-item>
 
