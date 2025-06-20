@@ -5,9 +5,9 @@ metadata:
   name: __POD_NAME__
 spec:
   hostAliases:
-  - ip: "10.77.3.203"
+  - ip: "10.77.3.203" # Bu IP'nin SonarQube Ingress veya servisine yönlendirildiğinden emin olun
     hostnames:
-    - "sonarqube.cloudpro.com.tr" # Bu hostname'in Adım 1'deki sertifikanızdaki CN (Common Name) ile eşleştiğinden emin olun
+    - "sonarqube.cloudpro.com.tr" # Bu hostname'in sertifikanızdaki CN ile eşleştiğinden emin olun
     - "harbor.cloudpro.com.tr"
     - "vault.cloudpro.com.tr"
 
@@ -16,7 +16,7 @@ spec:
     emptyDir: {}
   - name: custom-cacerts-volume # Yeni volume tanımı: Kendi oluşturduğumuz Keystore'u bağlayacağız
     configMap:
-      name: sonar-custom-cacerts # Adım 3'te oluşturduğumuz ConfigMap'in adı
+      name: sonar-custom-cacerts # Daha önce manuel olarak oluşturduğumuz ConfigMap'in adı
 
   initContainers:
   - name: git-checkout
@@ -51,7 +51,7 @@ spec:
       mountPath: /workspace
     - name: custom-cacerts-volume # Kendi Keystore'umuzu mount ediyoruz
       mountPath: /opt/java/cacerts-custom # Konteyner içinde bu yolda erişilebilir olacak
-      subPath: cacerts-custom # ConfigMap'teki dosyanın adı
+      subPath: cacerts-custom # ConfigMap'teki dosyanın adı (ConfigMap'i oluştururken kullandığımız dosya adı)
     command: ["/bin/sh", "-c"]
     args:
     - |
