@@ -10,7 +10,9 @@ trigger:
 pool:
   name: 'RKE2'
 
+# DÜZELTME: Pipeline'ın Library'deki değişken grubunu kullanmasını sağlıyoruz.
 variables:
+- group: SonarQube-Variables # Adım 1'de oluşturduğumuz grubun adı
 - group: Redmine-Integration
 - name: harborRepo
   value: 'harbor.cloudpro.com.tr/helpdesk'
@@ -45,31 +47,30 @@ stages:
             chmod +x templates/detect-changes.sh
             ./templates/detect-changes.sh
 
-  # Artık build-service-job.yml'i doğrudan çağırıyoruz
   - template: templates/build-service-job.yml
     parameters:
       serviceName: 'user_service'
-      sonarProjectKey: 'helpdesk-user-service' # SonarQube proje anahtarı
+      sonarProjectKey: 'helpdesk-user-service'
       dependsOn: DetectChanges
       condition: eq(dependencies.DetectChanges.outputs['detect_changes_step.USER_SERVICE_CHANGED'], 'true')
 
   - template: templates/build-service-job.yml
     parameters:
       serviceName: 'ticket_service'
-      sonarProjectKey: 'helpdesk-ticket-service' # SonarQube proje anahtarı
+      sonarProjectKey: 'helpdesk-ticket-service'
       dependsOn: DetectChanges
       condition: eq(dependencies.DetectChanges.outputs['detect_changes_step.TICKET_SERVICE_CHANGED'], 'true')
 
   - template: templates/build-service-job.yml
     parameters:
       serviceName: 'auth_service'
-      sonarProjectKey: 'helpdesk-auth-service' # SonarQube proje anahtarı
+      sonarProjectKey: 'helpdesk-auth-service'
       dependsOn: DetectChanges
       condition: eq(dependencies.DetectChanges.outputs['detect_changes_step.AUTH_SERVICE_CHANGED'], 'true')
 
   - template: templates/build-service-job.yml
     parameters:
       serviceName: 'frontend'
-      sonarProjectKey: 'helpdesk-frontend' # SonarQube proje anahtarı
+      sonarProjectKey: 'helpdesk-frontend'
       dependsOn: DetectChanges
       condition: eq(dependencies.DetectChanges.outputs['detect_changes_step.FRONTEND_CHANGED'], 'true')
