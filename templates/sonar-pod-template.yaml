@@ -1,9 +1,19 @@
 # templates/sonar-pod-template.yaml
+# DÜZELTME: hostAliases eklendi.
 apiVersion: v1
 kind: Pod
 metadata:
   name: __POD_NAME__
 spec:
+  # YENİ: Bu blok, pod içindeki DNS çözümlemesi için eklenmiştir.
+  # sonarqube.cloudpro.com.tr alan adını doğru IP adresine yönlendirir.
+  hostAliases:
+  - ip: "10.77.3.203"
+    hostnames:
+    - "sonarqube.cloudpro.com.tr"
+    - "harbor.cloudpro.com.tr" # Diğer gerekli adresleri de buraya ekleyebilirsiniz.
+    - "vault.cloudpro.com.tr"
+
   volumes:
   - name: workspace
     emptyDir: {}
@@ -29,24 +39,18 @@ spec:
 
   containers:
   - name: sonarqube-scanner
-    # SonarSource tarafından sağlanan resmi tarayıcı imajını kullanıyoruz
     image: sonarsource/sonar-scanner-cli:latest
     workingDir: /workspace/__CONTEXT_SUB_PATH__
     env:
-      # Java'nın ek bellek seçeneklerine ihtiyaç duymaması için
       - name: SONAR_SCANNER_OPTS
         value: "-Duser.home=/tmp"
     command: ["sonar-scanner"]
     args:
-      # Tarayıcıya gerekli parametreleri burada iletiyoruz
       - "-Dsonar.host.url=__SONAR_URL__"
       - "-Dsonar.login=__SONAR_TOKEN__"
       - "-Dsonar.projectKey=__PROJECT_KEY__"
       - "-Dsonar.projectName=__PROJECT_KEY__"
       - "-Dsonar.sources=."
       - "-Dsonar.scm.disabled=true"
-      # Python ve JS/TS için ek ayarlar (gerekirse)
-      # - "-Dsonar.python.version=3.11"
-      # - "-Dsonar.javascript.lcov.reportPaths=coverage/lcov.info"
 
   restartPolicy: Never

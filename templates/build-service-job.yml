@@ -20,8 +20,6 @@ jobs:
   condition: ${{ parameters.condition }}
   timeoutInMinutes: 30
 
-  # DÜZELTME: 'env:' bloğu kaldırıldı ve AZP_TOKEN buraya, 'variables' altına taşındı.
-  # Bu, AZP_TOKEN'ı bu işin içindeki tüm adımlar için bir ortam değişkeni yapar.
   variables:
     serviceName: ${{ parameters.serviceName }}
 
@@ -59,9 +57,6 @@ jobs:
         sed -i "s|__SCANNER_IMAGE__|$SCANNER_IMAGE|g" "$(kanikoFinalFile)-sca-$(serviceName)"
         sed -i "s|__SERVICE_TYPE__|$SERVICE_TYPE|g" "$(kanikoFinalFile)-sca-$(serviceName)"
 
-  # ... (Diğer tüm apply, wait, cleanup adımları aynı kalır) ...
-  # Not: Bu adımların içeriği bir önceki çalışan versiyondaki gibi korunmalıdır.
-  # Sadece bu dosyanın tam ve çalışır halini istendiği için tekrar eklenmiştir.
   - task: Kubernetes@1
     displayName: '1b. Apply & Run SCA Pod'
     inputs:
@@ -102,15 +97,15 @@ jobs:
       arguments: 'pod/$(scaPodName) --ignore-not-found=true'
 
   # ===================================================================
-  # YENİ BÖLÜM: SONARQUBE TARAMA POD'U
+  # BÖLÜM 2: SONARQUBE TARAMA POD'U (DÜZELTMELER BURADA)
   # ===================================================================
   - task: Bash@3
     name: PrepareSonarManifest
     displayName: '2a. Prepare SonarQube Pod Manifest'
     env:
       AZP_TOKEN: $(System.AccessToken)
-      SONAR_URL: $(Sonar.Url) # Servis bağlantısından URL'yi al
-      SONAR_TOKEN: $(Sonar.Token) # Servis bağlantısından Token'ı al
+      SONAR_URL: $(Sonar.Url) 
+      SONAR_TOKEN: $(Sonar.Token)
     inputs:
       targetType: 'inline'
       script: |
@@ -118,10 +113,7 @@ jobs:
         safePodSuffix=$(echo "$(serviceName)" | sed 's/_/-/g')
         sonarPodName="sonar-$(imageTag)-$safePodSuffix"
         echo "##vso[task.setvariable variable=sonarPodName]$sonarPodName"
-
         cp templates/sonar-pod-template.yaml "$(kanikoFinalFile)-sonar-$(serviceName)"
-        
-        # Değerleri YAML şablonuna yaz
         sed -i "s|__POD_NAME__|$sonarPodName|g" "$(kanikoFinalFile)-sonar-$(serviceName)"
         sed -i "s|__CONTEXT__|$(gitRepoUrl)|g" "$(kanikoFinalFile)-sonar-$(serviceName)"
         sed -i "s|__CONTEXT_SUB_PATH__|$(serviceName)|g" "$(kanikoFinalFile)-sonar-$(serviceName)"
@@ -139,15 +131,12 @@ jobs:
     inputs:
       targetType: 'inline'
       script: |
-        echo "Waiting for pod $(sonarPodName) to finish..."
-        kubectl wait --for=condition=Ready pod/$(sonarPodName) --timeout=5m -n $(k8sNamespace)
-        kubectl logs $(sonarPodName) -n $(k8sNamespace) -c sonarqube-scanner --follow
-
+        echo "Waiting for pod $(sonarPodName) to finish..."; kubectl wait --for=condition=Ready pod/$(sonarPodName) --timeout=5m -n $(k8sNamespace); kubectl logs $(sonarPodName) -n $(k8sNamespace) -c sonarqube-scanner --follow
+  
   - task: Kubernetes@1
     displayName: '2d. Cleanup SonarQube Pod'
     condition: always()
     inputs: { connectionType: 'None', namespace: '$(k8sNamespace)', command: 'delete', arguments: 'pod/$(sonarPodName) --ignore-not-found=true' }
-
   # ===================================================================
   # BÖLÜM 3: KANIKO BUILD POD'U (Eskiden Bölüm 2 idi, şimdi 3 oldu)
   # ===================================================================
