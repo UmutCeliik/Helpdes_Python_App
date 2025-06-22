@@ -98,13 +98,41 @@ jobs:
     inputs: { connectionType: 'None', namespace: '$(k8sNamespace)', command: 'apply', arguments: '-f $(kanikoFinalFile)-sonar-$(serviceName)' }
   
   - task: Bash@3
-    name: SonarStatusCheck # Görev seviyesinde çıktı değişkenini ayarlayan görev
+    name: SonarStatusCheck
     displayName: '2c. Wait for SonarQube Pod to Complete & Get Logs'
     inputs:
       targetType: 'inline'
       script: |
-        echo "Waiting for pod $(sonarPodName) to finish..."; kubectl wait --for=condition=Ready pod/$(sonarPodName) --timeout=5m -n $(k8sNamespace); kubectl logs $(sonarPodName) -n $(k8sNamespace) -c sonarqube-scanner --follow
-        SONAR_STATUS=$(curl -s -u $(SONAR_TOKEN): "$(SONAR_URL)/api/qualitygates/project_status?projectKey=$(sonarProjectKey)" | jq -r .projectStatus.status)
+        set -x # Debug modunu aç, komutları ve değişkenleri gösterir
+
+        echo "Waiting for pod $(sonarPodName) to finish...";
+        kubectl wait --for=condition=Ready pod/$(sonarPodName) --timeout=5m -n $(k8sNamespace);
+        kubectl logs $(sonarPodName) -n $(k8sNamespace) -c sonarqube-scanner --follow
+
+        # Kalite geçidi durumunu çekerken --insecure ekleyelim (eğer SonarQube self-signed kullanıyorsa)
+        # Ayrıca, ham curl çıktısını bir dosyaya kaydedelim ve loglayalım
+        CURL_OUTPUT_FILE="sonarqube_quality_gate_raw_response.json"
+        
+        # Curl komutunu çalıştır ve çıktıyı dosyaya kaydet, --fail flag'i ile HTTP hatasında exit kodu verir
+        curl -s --fail --insecure -u $(SONAR_TOKEN): "$(SONAR_URL)/api/qualitygates/project_status?projectKey=$(sonarProjectKey)" -o $CURL_OUTPUT_FILE
+        
+        # Curl başarılı olursa dosyayı logla
+        if [ $? -eq 0 ]; then # Önceki komutun başarıyla bittiğini kontrol et
+            echo "--- Raw SonarQube Quality Gate API Response ---"
+            cat $CURL_OUTPUT_FILE
+            echo "------------------------------------------------"
+            
+            # jq ile status'u çek
+            SONAR_STATUS=$(jq -r .projectStatus.status $CURL_OUTPUT_FILE)
+        else
+            echo "##vso[task.logissue type=error;]Failed to retrieve SonarQube Quality Gate status with curl."
+            echo "##vso[task.logissue type=error;]Curl exit code: $?"
+            echo "##vso[task.logissue type=error;]Response content (if any):"
+            cat $CURL_OUTPUT_FILE # Hata durumunda bile çıktıyı logla
+            echo "------------------------------------------------"
+            SONAR_STATUS="FAILED_API_CALL" # Hata durumunda varsayılan bir status ata
+        fi
+
         echo "SonarQube Quality Gate Status: $SONAR_STATUS"
         if [ "$SONAR_STATUS" != "OK" ]; then
             echo "##vso[task.logissue type=error;]SonarQube Quality Gate failed for project $(sonarProjectKey)."
@@ -113,6 +141,7 @@ jobs:
         else
             echo "##vso[task.setvariable variable=sonar_status;isOutput=true]OK"
         fi
+        
   - task: Kubernetes@1
     displayName: '2d. Cleanup SonarQube Pod'
     condition: always()
