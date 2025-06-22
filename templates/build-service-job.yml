@@ -268,31 +268,26 @@ jobs:
     condition: and(succeeded(), eq('${{ parameters.serviceName }}', 'ticket_service'), eq(variables['sonar_status'], 'OK'))
 
   - task: Bash@3
-    name: RunNexusPublisherInPod
-    displayName: '4a.3. Run Python Artifacts Publish in Nexus Pod (Ticket Service)'
+    name: WaitAndGetNexusPublisherLogs
+    displayName: '4a.3. Wait for Nexus Publisher Pod to Complete & Get Logs (Ticket Service)'
     inputs:
       targetType: 'inline'
       script: |
         set -x # Debug modunu aç
-        echo "Waiting for pod $(nexusPublisherPodName) to start..."; 
-        kubectl wait --for=condition=Ready pod/$(nexusPublisherPodName) --timeout=5m -n $(k8sNamespace);
-        echo "Running commands inside pod $(nexusPublisherPodName)..."
-
-        # Python dağıtımını ve yayınlama komutlarını pod içinde çalıştır
-        kubectl exec -it $(nexusPublisherPodName) -n $(k8sNamespace) -- /bin/bash -c " \
-          cd /azp/_work/$(CONTEXT_SUB_PATH) && \
-          echo 'Building Python distribution for ${{ parameters.serviceName }}...' && \
-          pip install -r requirements.txt && \
-          python setup.py sdist bdist_wheel && \
-          echo 'Publishing Python artifacts to Nexus hosted repository...' && \
-          REQUESTS_VERIFY=false TWINE_USERNAME=\$NEXUS_USERNAME TWINE_PASSWORD=\$NEXUS_PASSWORD twine upload \
-                                --repository-url \$NEXUS_URL/repository/helpdesk-python-hosted/ \
-                                dist/* && \
-          echo 'Python artifacts published successfully to Nexus.' \
-        "
+        echo "Waiting for pod $(nexusPublisherPodName) to complete..."; 
+        # Pod'un "Completed" durumuna gelmesini bekle
+        kubectl wait --for=condition=Completed pod/$(nexusPublisherPodName) --timeout=10m -n $(k8sNamespace);
         # Pod'un loglarını çek
         kubectl logs $(nexusPublisherPodName) -n $(k8sNamespace) --follow
+        # Pod'un exit kodunu kontrol et
+        EXIT_CODE=$(kubectl get pod $(nexusPublisherPodName) -n $(k8sNamespace) -o jsonpath='{.status.containerStatuses[?(@.name=="publisher")].state.terminated.exitCode}')
+        echo "Nexus Publisher Pod exited with code: $EXIT_CODE"
+        if [ "$EXIT_CODE" -ne 0 ]; then
+            echo "##vso[task.logissue type=error;]Nexus Publisher Pod exited with non-zero code: $EXIT_CODE"
+            exit 1
+        fi
     condition: and(succeeded(), eq('${{ parameters.serviceName }}', 'ticket_service'), eq(variables['sonar_status'], 'OK'))
+
 
   - task: Kubernetes@1
     displayName: '4a.4. Cleanup Nexus Publisher Pod (Ticket Service)'
