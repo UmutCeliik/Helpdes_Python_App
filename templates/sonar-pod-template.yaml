@@ -10,6 +10,8 @@ spec:
     - "sonarqube.cloudpro.com.tr"
     - "harbor.cloudpro.com.tr"
     - "vault.cloudpro.com.tr"
+    - "keycloak.cloudpro.com.tr"
+    - "argo.cloudpro.com.tr"
     - "nexus.cloudpro.com.tr"
 
   volumes:
