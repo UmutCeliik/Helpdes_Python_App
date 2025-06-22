@@ -168,7 +168,7 @@ jobs:
                         dist/*
         echo "Python artifacts published successfully to Nexus."
     # DEĞİŞİKLİK: workingDirectory satırı kaldırıldı.
-    condition: and(succeeded(), eq('${{ parameters.serviceName }}', 'user_service'), eq(dependencies.SonarStatusCheck.outputs['sonar_status'], 'OK'))
+    condition: and(succeeded(), eq('${{ parameters.serviceName }}', 'user_service'),   eq(variables['sonar_status'], 'OK'))
 
   - task: Bash@3
     displayName: '4a.1. Publish Python Artifacts to Nexus (Ticket Service)'
@@ -192,7 +192,7 @@ jobs:
                         dist/*
         echo "Python artifacts published successfully to Nexus."
     # DEĞİŞİKLİK: workingDirectory satırı kaldırıldı.
-    condition: and(succeeded(), eq('${{ parameters.serviceName }}', 'ticket_service'), eq(dependencies.SonarStatusCheck.outputs['sonar_status'], 'OK'))
+    condition: and(succeeded(), eq('${{ parameters.serviceName }}', 'ticket_service'),   eq(variables['sonar_status'], 'OK'))
 
   - task: Bash@3
     displayName: '4b. Archive Frontend Build to Nexus Raw'
@@ -212,7 +212,7 @@ jobs:
              $(NEXUS_URL)/repository/frontend-static-files/frontend-dist-$(Build.BuildId).tar.gz
         echo "Frontend static files archived to Nexus Raw."
     # DEĞİŞİKLİK: workingDirectory satırı kaldırıldı.
-    condition: and(succeeded(), eq('${{ parameters.serviceName }}', 'frontend'), eq(dependencies.SonarStatusCheck.outputs['sonar_status'], 'OK'))
+    condition: and(succeeded(), eq('${{ parameters.serviceName }}', 'frontend'),   eq(variables['sonar_status'], 'OK'))
 
   # BÖLÜM 5: SBOM Üretimi ve Nexus'a Yükleme (Örnek)
   - task: Bash@3
