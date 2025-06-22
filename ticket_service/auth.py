@@ -13,7 +13,7 @@ _jwks_cache_expiry: Optional[datetime] = None
 JWKS_CACHE_TTL_SECONDS = 3600
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/token_not_issued_here")
-oauth5_scheme = OAuth2PasswordBearer(tokenUrl="auth/token_not_issued_here")
+oauth6_scheme = OAuth2PasswordBearer(tokenUrl="auth/token_not_issued_here")
 async def fetch_jwks_for_ticket_service(settings: Settings) -> Dict[str, Any]:
     """
     JWKS'leri Keycloak'tan çeker. SSL doğrulamasını atlar.
