@@ -26,13 +26,16 @@ jobs:
     NEXUS_USERNAME: $(NexusUsername)
     NEXUS_PASSWORD: $(NexusPassword)
     NEXUS_URL: $(NexusUrl)
+    # NEXUS_HOST'u NEXUS_URL'den türetmek daha tutarlı
+    # NOT: Bu regex, URL'den host'u çekmek için basit bir örnektir.
+    # Daha karmaşık URL'ler için daha sağlam bir parser gerekebilir.
     NEXUS_HOST: $(NexusUrl:https://([^/]+).*$) # Sadece host kısmını çeker
 
   steps:
   - checkout: self
 
   # # ===================================================================
-  # # BÖLÜM 1: SCA TARAMA POD'U (Değişiklik Yok)
+  # # BÖLÜM 1: SCA TARAMA POD'U (Mevcut haliyle devam edebilir, Nexus ayarları sca-pod-template içinde yapıldı)
   # # ===================================================================
   # - task: Bash@3
   #   # ... Bu bölüm önceki gibi aynı kalıyor ...
@@ -104,6 +107,19 @@ jobs:
       targetType: 'inline'
       script: |
         echo "Waiting for pod $(sonarPodName) to finish..."; kubectl wait --for=condition=Ready pod/$(sonarPodName) --timeout=5m -n $(k8sNamespace); kubectl logs $(sonarPodName) -n $(k8sNamespace) -c sonarqube-scanner --follow
+        # SonarQube kalite geçidi durumunu kontrol et
+        # NOT: SONAR_URL'de host alias veya sertifika sorunu varsa burası hata verebilir.
+        # Eğer curl burada hata verirse, curl için --insecure eklemen gerekebilir.
+        SONAR_STATUS=$(curl -s -u $(SONAR_TOKEN): "$(SONAR_URL)/api/qualitygates/project_status?projectKey=$(sonarProjectKey)" | jq -r .projectStatus.status)
+        echo "SonarQube Quality Gate Status: $SONAR_STATUS"
+        if [ "$SONAR_STATUS" != "OK" ]; then
+            echo "##vso[task.logissue type=error;]SonarQube Quality Gate failed for project $(sonarProjectKey)."
+            # Bu değişkeni ayarla, böylece sonraki adımlarda kullanabilirsin.
+            echo "##vso[task.setvariable variable=sonar_status;isOutput=true]FAILED"
+            exit 1 # Kalite geçidi başarısız olursa build'i durdur
+        else
+            echo "##vso[task.setvariable variable=sonar_status;isOutput=true]OK"
+        fi
   - task: Kubernetes@1
     displayName: '2d. Cleanup SonarQube Pod'
     condition: always()
@@ -138,36 +154,27 @@ jobs:
   #   inputs: { connectionType: 'None', namespace: '$(k8sNamespace)', command: 'delete', arguments: 'pod/$(kanikoPodName) --ignore-not-found=true' }
   
   # BÖLÜM 4: ARTIFACT'LARI NEXUS'A YAYINLAMA
+
   - task: Bash@3
-    displayName: '4a. Publish Python Artifacts to Nexus'
+    displayName: '4a. Publish Python Artifacts to Nexus (User Service)'
     inputs:
       targetType: 'inline'
       script: |
         set -e
         echo "Building Python distribution for ${{ parameters.serviceName }}..."
-        # requirements.txt dosyasını derleme dizinine kopyala
-        # `setup.py` dosyası projenin ana dizininde olmalı
         cp $(Build.SourcesDirectory)/${{ parameters.serviceName }}/requirements.txt .
-        cp $(Build.SourcesDirectory)/${{ parameters.serviceName }}/setup.py . # setup.py'yi kopyala
-
-        # Bağımlılıkları tekrar kur (build sırasında hata vermemek için)
+        cp $(Build.SourcesDirectory)/${{ parameters.serviceName }}/setup.py . 
         pip install -r requirements.txt
-        # Twine kurulumu
         pip install wheel twine
-
-        # Dist paketi oluştur (sdist ve bdist_wheel)
         python setup.py sdist bdist_wheel
         
         echo "Publishing Python artifacts to Nexus hosted repository..."
-        # REQUESTS_VERIFY=false ile SSL doğrulamasını atla (GEÇİCİ VE GÜVENLİKSİZ)
         REQUESTS_VERIFY=false TWINE_USERNAME=$(NEXUS_USERNAME) TWINE_PASSWORD=$(NEXUS_PASSWORD) twine upload \
                              --repository-url $(NEXUS_URL)/repository/helpdesk-python-hosted/ \
                              dist/*
         echo "Python artifacts published successfully to Nexus."
     workingDirectory: '$(Build.SourcesDirectory)/${{ parameters.serviceName }}'
-    # Bu adımı sadece Python servisleri için çalıştır
     condition: and(succeeded(), eq('${{ parameters.serviceName }}', 'user_service'), eq(variables['sonar_status'], 'OK'))
-    # NOT: Yukarıdaki "or" yerine ayrı bir task daha ekleyip, condition'ı buna göre ayarlayalım
   
   - task: Bash@3
     displayName: '4a.1. Publish Python Artifacts to Nexus (Ticket Service)'
@@ -198,17 +205,14 @@ jobs:
       script: |
         set -e
         echo "Archiving frontend build output to Nexus Raw repository..."
-        # Frontend build çıktısı (dist klasörü) sıkıştırılır
         tar -czvf frontend-dist-$(Build.BuildId).tar.gz dist/
         
         echo "Uploading frontend static files to Nexus Raw repository..."
-        # Curl ile yükle, --insecure flag'ini kullanarak SSL doğrulamasını atla (GEÇİCİ VE GÜVENLİKSİZ)
         curl -v --insecure -u $(NEXUS_USERNAME):$(NEXUS_PASSWORD) \
              --upload-file frontend-dist-$(Build.BuildId).tar.gz \
              $(NEXUS_URL)/repository/frontend-static-files/frontend-dist-$(Build.BuildId).tar.gz
         echo "Frontend static files archived to Nexus Raw."
     workingDirectory: '$(Build.SourcesDirectory)/${{ parameters.serviceName }}'
-    # Bu adımı sadece frontend servisi için çalıştır
     condition: and(succeeded(), eq('${{ parameters.serviceName }}', 'frontend'), eq(variables['sonar_status'], 'OK'))
 
 
@@ -220,10 +224,6 @@ jobs:
       script: |
         set -e
         echo "Generating SBOM for ${{ parameters.serviceName }}..."
-        # SBOM oluşturma aracı kullanılmalı (örn. Syft, CycloneDX CLI)
-        # Bu kısım için ilgili aracın kurulumu ve kullanımı gerekebilir
-        # Örnek: `syft dir . -o cyclonedx-json > sbom.json` veya `cyclonedx-python --format json -o sbom.json`
-
         # Python için örnek SBOM oluşturma (cyclonedx-python)
         if [[ "${{ parameters.serviceName }}" == "user_service" || "${{ parameters.serviceName }}" == "ticket_service" ]]; then
           pip install cyclonedx-bom
@@ -237,16 +237,12 @@ jobs:
         mv sbom.json "$SBOM_FILE"
 
         echo "Uploading SBOM to Nexus Raw repository..."
-        # Curl ile yükle, --insecure flag'ini kullanarak SSL doğrulamasını atla (GEÇİCİ VE GÜVENLİKSİZ)
         curl -v --insecure -u $(NEXUS_USERNAME):$(NEXUS_PASSWORD) \
              --upload-file "$SBOM_FILE" \
              $(NEXUS_URL)/repository/sbom-reports/$SBOM_FILE
         echo "SBOM uploaded to Nexus."
     workingDirectory: '$(Build.SourcesDirectory)/${{ parameters.serviceName }}'
     condition: succeeded() # SBOM her zaman oluşturulmalı, hata olsa bile (analiz için)
-
-
-
 
   # - task: Bash@3
   #   displayName: 'Update Redmine Issue'
