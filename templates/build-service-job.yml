@@ -26,6 +26,7 @@ jobs:
     NEXUS_USERNAME: $(NexusUsername)
     NEXUS_PASSWORD: $(NexusPassword)
     NEXUS_URL: $(NexusUrl)
+    NEXUS_HOST: $(NexusUrl:https://([^/]+).*$) # Sadece host kısmını çeker
 
   steps:
   - checkout: self
@@ -136,84 +137,80 @@ jobs:
   #   condition: always()
   #   inputs: { connectionType: 'None', namespace: '$(k8sNamespace)', command: 'delete', arguments: 'pod/$(kanikoPodName) --ignore-not-found=true' }
   
-  - ${{ if eq(parameters.serviceName, 'user_service') or eq(parameters.serviceName, 'ticket_service') }}:
-    - task: Bash@3
-      displayName: '4a. Publish Python Artifacts to Nexus'
-      inputs:
-        targetType: 'inline'
-        script: |
-          set -e
-          echo "Building Python distribution for ${{ parameters.serviceName }}..."
-          # requirements.txt dosyasını derleme dizinine kopyala
-          cp ${{ parameters.serviceName }}/requirements.txt .
-          
-          # Bağımlılıkları tekrar kur (build sırasında hata vermemek için)
-          # NOT: Eğer bu bağımlılıklar da Nexus üzerinden çekilecekse, buraya da pip config set eklenmeli.
-          # Ancak genel build adımlarında bu zaten sca-pod-template içinde yapılıyor.
-          pip install -r requirements.txt
+  # BÖLÜM 4: ARTIFACT'LARI NEXUS'A YAYINLAMA
+  - task: Bash@3
+    displayName: '4a. Publish Python Artifacts to Nexus'
+    inputs:
+      targetType: 'inline'
+      script: |
+        set -e
+        echo "Building Python distribution for ${{ parameters.serviceName }}..."
+        # requirements.txt dosyasını derleme dizinine kopyala
+        # `setup.py` dosyası projenin ana dizininde olmalı
+        cp $(Build.SourcesDirectory)/${{ parameters.serviceName }}/requirements.txt .
+        cp $(Build.SourcesDirectory)/${{ parameters.serviceName }}/setup.py . # setup.py'yi kopyala
 
-          # Dist paketi oluştur (sdist ve bdist_wheel)
-          python setup.py sdist bdist_wheel
-          
-          echo "Publishing Python artifacts to Nexus hosted repository..."
-          # Nexus PyPI hosted repo URL'ini ve kimlik bilgilerini kullanarak twine ile yükle
-          # Twine için --disable-progress kullanıldı ve --non-interactive eklenmeli.
-          # SSL doğrulamasını atlamak için TWINE_CERT ortam değişkeni kullanılabilir
-          # veya --cert PATH_TO_CERT veya --client-cert PATH_TO_CERTFILE PATH_TO_KEYFILE kullanılabilir.
-          # Ancak self-signed için en pratik yol CURL_CA_BUNDLE gibi bir değişken ayarlamak veya
-          # Python'ın kendisinin güvenilir sertifikalarını manuel olarak yönetmektir.
-          # Geçici olarak, güvenliği riske atarak doğrudan doğrulama atlanır.
-          # Alternatif: Nexus'u HTTP üzerinde çalıştırmak veya self-signed sertifikayı sisteme güvenilir olarak eklemek
-          
-          # Twine için genellikle .pypirc dosyası veya ortam değişkenleri kullanılır.
-          # TWINE_USERNAME ve TWINE_PASSWORD zaten Azure Pipelines tarafından sağlanıyor.
-          # TWINE_REPOSITORY_URL ortam değişkeni kullanılabilir.
-          
-          # Eğer Twine SSL doğrulama hatası veriyorsa, Python'ın sertifika deposuna self-signed sertifikanı eklemen en iyi yöntemdir.
-          # Ancak, geçici bir çözüm olarak, bazı durumlarda REQUESTS_CA_BUNDLE ortam değişkeni işe yarayabilir:
-          # export REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt # Veya kendi sertifika dosyanızın yolu
-          
-          # Self-signed sertifika ile doğrudan doğrulama atlama (güvenlik açığı)
-          # Twine'ın altında yatan requests kütüphanesi için doğrulamayı kapatmak için:
-          # export PYTHONWARNINGS="ignore:Unverified HTTPS request"
-          # pip install requests[security] # Eğer sertifika sorunları devam ederse requests kütüphanesi için.
+        # Bağımlılıkları tekrar kur (build sırasında hata vermemek için)
+        pip install -r requirements.txt
+        # Twine kurulumu
+        pip install wheel twine
 
-          # Twine'da doğrudan --insecure veya --no-check-certificate gibi bir flag yok.
-          # Ancak, curl'de `--insecure` var. Twine, requests kütüphanesini kullanır.
-          # requests'in SSL doğrulamasını atlaması için env'de REQUESTS_VERIFY=false ayarlamak güvenli bir yoldur.
-          
-          TWINE_REPOSITORY_URL=$(NEXUS_URL)/repository/helpdesk-python-hosted/
-          TWINE_USERNAME=$(NEXUS_USERNAME)
-          TWINE_PASSWORD=$(NEXUS_PASSWORD)
+        # Dist paketi oluştur (sdist ve bdist_wheel)
+        python setup.py sdist bdist_wheel
+        
+        echo "Publishing Python artifacts to Nexus hosted repository..."
+        # REQUESTS_VERIFY=false ile SSL doğrulamasını atla (GEÇİCİ VE GÜVENLİKSİZ)
+        REQUESTS_VERIFY=false TWINE_USERNAME=$(NEXUS_USERNAME) TWINE_PASSWORD=$(NEXUS_PASSWORD) twine upload \
+                             --repository-url $(NEXUS_URL)/repository/helpdesk-python-hosted/ \
+                             dist/*
+        echo "Python artifacts published successfully to Nexus."
+    workingDirectory: '$(Build.SourcesDirectory)/${{ parameters.serviceName }}'
+    # Bu adımı sadece Python servisleri için çalıştır
+    condition: and(succeeded(), eq('${{ parameters.serviceName }}', 'user_service'), eq(variables['sonar_status'], 'OK'))
+    # NOT: Yukarıdaki "or" yerine ayrı bir task daha ekleyip, condition'ı buna göre ayarlayalım
+  
+  - task: Bash@3
+    displayName: '4a.1. Publish Python Artifacts to Nexus (Ticket Service)'
+    inputs:
+      targetType: 'inline'
+      script: |
+        set -e
+        echo "Building Python distribution for ${{ parameters.serviceName }}..."
+        cp $(Build.SourcesDirectory)/${{ parameters.serviceName }}/requirements.txt .
+        cp $(Build.SourcesDirectory)/${{ parameters.serviceName }}/setup.py .
+        pip install -r requirements.txt
+        pip install wheel twine
+        python setup.py sdist bdist_wheel
+        
+        echo "Publishing Python artifacts to Nexus hosted repository..."
+        REQUESTS_VERIFY=false TWINE_USERNAME=$(NEXUS_USERNAME) TWINE_PASSWORD=$(NEXUS_PASSWORD) twine upload \
+                             --repository-url $(NEXUS_URL)/repository/helpdesk-python-hosted/ \
+                             dist/*
+        echo "Python artifacts published successfully to Nexus."
+    workingDirectory: '$(Build.SourcesDirectory)/${{ parameters.serviceName }}'
+    condition: and(succeeded(), eq('${{ parameters.serviceName }}', 'ticket_service'), eq(variables['sonar_status'], 'OK'))
 
-          # REQUESTS_VERIFY=false ile SSL doğrulamasını atla (GEÇİCİ VE GÜVENLİKSİZ)
-          REQUESTS_VERIFY=false twine upload --repository-url $TWINE_REPOSITORY_URL \
-                                --username $TWINE_USERNAME \
-                                --password $TWINE_PASSWORD \
-                                dist/*
-          echo "Python artifacts published successfully to Nexus."
-      workingDirectory: '$(Build.SourcesDirectory)/${{ parameters.serviceName }}'
-      condition: and(succeeded(), eq(variables['sonar_status'], 'OK')) # Sadece SonarQube geçerse yayınla
 
-  - ${{ if eq(parameters.serviceName, 'frontend') }}:
-    - task: Bash@3
-      displayName: '4b. Archive Frontend Build to Nexus Raw'
-      inputs:
-        targetType: 'inline'
-        script: |
-          set -e
-          echo "Archiving frontend build output to Nexus Raw repository..."
-          # Frontend build çıktısı (dist klasörü) sıkıştırılır
-          tar -czvf frontend-dist-$(Build.BuildId).tar.gz dist/
-          
-          echo "Uploading frontend static files to Nexus Raw repository..."
-          # Curl ile yükle, --insecure flag'ini kullanarak SSL doğrulamasını atla (GEÇİCİ VE GÜVENLİKSİZ)
-          curl -v --insecure -u $(NEXUS_USERNAME):$(NEXUS_PASSWORD) \
-               --upload-file frontend-dist-$(Build.BuildId).tar.gz \
-               https://$(NEXUS_HOST)/repository/frontend-static-files/frontend-dist-$(Build.BuildId).tar.gz
-          echo "Frontend static files archived to Nexus Raw."
-      workingDirectory: '$(Build.SourcesDirectory)/${{ parameters.serviceName }}'
-      condition: and(succeeded(), eq(variables['sonar_status'], 'OK')) # Sadece SonarQube geçerse yayınla
+  - task: Bash@3
+    displayName: '4b. Archive Frontend Build to Nexus Raw'
+    inputs:
+      targetType: 'inline'
+      script: |
+        set -e
+        echo "Archiving frontend build output to Nexus Raw repository..."
+        # Frontend build çıktısı (dist klasörü) sıkıştırılır
+        tar -czvf frontend-dist-$(Build.BuildId).tar.gz dist/
+        
+        echo "Uploading frontend static files to Nexus Raw repository..."
+        # Curl ile yükle, --insecure flag'ini kullanarak SSL doğrulamasını atla (GEÇİCİ VE GÜVENLİKSİZ)
+        curl -v --insecure -u $(NEXUS_USERNAME):$(NEXUS_PASSWORD) \
+             --upload-file frontend-dist-$(Build.BuildId).tar.gz \
+             $(NEXUS_URL)/repository/frontend-static-files/frontend-dist-$(Build.BuildId).tar.gz
+        echo "Frontend static files archived to Nexus Raw."
+    workingDirectory: '$(Build.SourcesDirectory)/${{ parameters.serviceName }}'
+    # Bu adımı sadece frontend servisi için çalıştır
+    condition: and(succeeded(), eq('${{ parameters.serviceName }}', 'frontend'), eq(variables['sonar_status'], 'OK'))
+
 
   # BÖLÜM 5: SBOM Üretimi ve Nexus'a Yükleme (Örnek)
   - task: Bash@3
@@ -223,8 +220,19 @@ jobs:
       script: |
         set -e
         echo "Generating SBOM for ${{ parameters.serviceName }}..."
-        # ... (SBOM oluşturma komutları) ...
-        
+        # SBOM oluşturma aracı kullanılmalı (örn. Syft, CycloneDX CLI)
+        # Bu kısım için ilgili aracın kurulumu ve kullanımı gerekebilir
+        # Örnek: `syft dir . -o cyclonedx-json > sbom.json` veya `cyclonedx-python --format json -o sbom.json`
+
+        # Python için örnek SBOM oluşturma (cyclonedx-python)
+        if [[ "${{ parameters.serviceName }}" == "user_service" || "${{ parameters.serviceName }}" == "ticket_service" ]]; then
+          pip install cyclonedx-bom
+          cyclonedx-bom -o sbom.json
+        elif [[ "${{ parameters.serviceName }}" == "frontend" ]]; then
+          npm install -g @cyclonedx/cyclonedx-npm # Global kurulum, daha önce yapılmamışsa
+          cyclonedx-npm -o sbom.json
+        fi
+
         SBOM_FILE="sbom-$(Build.BuildId)-${{ parameters.serviceName }}.json"
         mv sbom.json "$SBOM_FILE"
 
@@ -232,10 +240,11 @@ jobs:
         # Curl ile yükle, --insecure flag'ini kullanarak SSL doğrulamasını atla (GEÇİCİ VE GÜVENLİKSİZ)
         curl -v --insecure -u $(NEXUS_USERNAME):$(NEXUS_PASSWORD) \
              --upload-file "$SBOM_FILE" \
-             https://$(NEXUS_HOST)/repository/sbom-reports/$SBOM_FILE
+             $(NEXUS_URL)/repository/sbom-reports/$SBOM_FILE
         echo "SBOM uploaded to Nexus."
     workingDirectory: '$(Build.SourcesDirectory)/${{ parameters.serviceName }}'
-    condition: succeeded()
+    condition: succeeded() # SBOM her zaman oluşturulmalı, hata olsa bile (analiz için)
+
 
 
 
