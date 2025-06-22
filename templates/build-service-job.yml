@@ -252,22 +252,56 @@ jobs:
     inputs:
       targetType: 'inline'
       script: |
-        set -e
+        set -e # Herhangi bir komut başarısız olursa script'i durdur
+
+        echo "Python ve pip kurulumunu kontrol ediyor..."
+        if ! command -v python3 &> /dev/null
+        then
+            echo "Python 3 bulunamadı. Python 3 ve pip3 kurmaya çalışılıyor..."
+            # Agent imajınızın taban işletim sistemine göre uygun paketi yükleyin.
+            # Ubuntu/Debian tabanlı ise (en yaygın):
+            apt-get update && apt-get install -y python3 python3-pip python3-venv
+
+            # Eğer Red Hat/CentOS tabanlı ise (yalnızca apt-get başarısız olursa deneyin):
+            # yum install -y python3 python3-pip
+
+            # Eğer Alpine Linux tabanlı ise (yalnızca yukarıdakiler başarısız olursa deneyin):
+            # apk add --no-cache python3 py3-pip py3-virtualenv
+            
+            echo "Python ve pip kurulumu tamamlandı (ya da zaten mevcuttu)."
+        else
+            echo "Python 3 bulundu. Kurulum adımı atlanıyor."
+        fi
+
+        # 'pip' komutunun 'pip3'e bir symlink olarak var olduğundan emin olun
+        if ! command -v pip &> /dev/null && command -v pip3 &> /dev/null
+        then
+            echo "Pip bulunamadı, ancak pip3 mevcut. pip için symlink oluşturuluyor."
+            # Bu, pip'i PATH'te erişilebilir kılar
+            ln -s "$(command -v pip3)" /usr/local/bin/pip
+        elif ! command -v pip &> /dev/null && ! command -v pip3 &> /dev/null
+        then
+            echo "HATA: Python ve pip kurulumu sonrası pip veya pip3 bulunamadı. Çıkılıyor."
+            exit 1 # Eğer pip hala yoksa pipeline'ı durdur
+        fi
+
         # Hedef dizine geç
         cd $(Build.SourcesDirectory)/${{ parameters.serviceName }}
 
-        echo "Building Python distribution for ${{ parameters.serviceName }}..."
-
+        echo "Python dağıtımı ${{ parameters.serviceName }} için oluşturuluyor..."
+        
+        # GEREKSİZ 'cp' KOMUTLARI KALDIRILDI
+        
         # Bağımlılıkları kur ve paketi oluştur
         pip install -r requirements.txt
         pip install wheel twine
         python setup.py sdist bdist_wheel
-
-        echo "Publishing Python artifacts to Nexus hosted repository..."
+        
+        echo "Python artifaktları Nexus barındırılan deposuna yayınlanıyor..."
         REQUESTS_VERIFY=false TWINE_USERNAME=$(NEXUS_USERNAME) TWINE_PASSWORD=$(NEXUS_PASSWORD) twine upload \
-                                 --repository-url $(NEXUS_URL)/repository/helpdesk-python-hosted/ \
-                                 dist/*
-        echo "Python artifacts published successfully to Nexus."
+                                --repository-url $(NEXUS_URL)/repository/helpdesk-python-hosted/ \
+                                dist/*
+        echo "Python artifaktları Nexus'a başarıyla yayınlandı."
     condition: and(succeeded(), eq('${{ parameters.serviceName }}', 'ticket_service'), eq(variables['sonar_status'], 'OK'))
 
 
