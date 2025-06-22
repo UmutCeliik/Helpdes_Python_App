@@ -109,31 +109,68 @@ jobs:
         kubectl wait --for=condition=Ready pod/$(sonarPodName) --timeout=5m -n $(k8sNamespace);
         kubectl logs $(sonarPodName) -n $(k8sNamespace) -c sonarqube-scanner --follow
 
-        # Kalite geçidi durumunu çekerken --insecure ekleyelim (eğer SonarQube self-signed kullanıyorsa)
-        # Ayrıca, ham curl çıktısını bir dosyaya kaydedelim ve loglayalım
-        CURL_OUTPUT_FILE="sonarqube_quality_gate_raw_response.json"
-        
-        # Curl komutunu çalıştır ve çıktıyı dosyaya kaydet, --fail flag'i ile HTTP hatasında exit kodu verir
-        curl -s --fail --insecure -u $(SONAR_TOKEN): "$(SONAR_URL)/api/qualitygates/project_status?projectKey=$(sonarProjectKey)" -o $CURL_OUTPUT_FILE
-        
-        # Curl başarılı olursa dosyayı logla
-        if [ $? -eq 0 ]; then # Önceki komutun başarıyla bittiğini kontrol et
-            echo "--- Raw SonarQube Quality Gate API Response ---"
-            cat $CURL_OUTPUT_FILE
-            echo "------------------------------------------------"
-            
-            # jq ile status'u çek
-            SONAR_STATUS=$(jq -r .projectStatus.status $CURL_OUTPUT_FILE)
-        else
-            echo "##vso[task.logissue type=error;]Failed to retrieve SonarQube Quality Gate status with curl."
-            echo "##vso[task.logissue type=error;]Curl exit code: $?"
-            echo "##vso[task.logissue type=error;]Response content (if any):"
-            cat $CURL_OUTPUT_FILE # Hata durumunda bile çıktıyı logla
-            echo "------------------------------------------------"
-            SONAR_STATUS="FAILED_API_CALL" # Hata durumunda varsayılan bir status ata
+        # jq'nun kurulu olup olmadığını kontrol et ve kur (eğer yoksa)
+        if ! command -v jq &> /dev/null
+        then
+            echo "jq is not installed. Attempting to install jq..."
+            # Varsayılan SonarScanner imajı genellikle Debian/Ubuntu tabanlıdır.
+            apt-get update && apt-get install -y jq || \
+            # Eğer imaj alpine ise:
+            apk add --no-cache jq || \
+            echo "Cannot install jq automatically. Please ensure jq is available in the SonarScanner image or install manually."
+            # Eğer jq kurulamıyorsa, bu noktada exit edebiliriz veya manuel kontrol için uyarı verebiliriz.
+            # Şimdilik devam edelim, ama bil ki bu bir sorun kaynağı olabilir.
         fi
 
-        echo "SonarQube Quality Gate Status: $SONAR_STATUS"
+        # Kalite geçidi durumunu çekerken --insecure ekleyelim (eğer SonarQube self-signed kullanıyorsa)
+        CURL_URL="$(SONAR_URL)/api/qualitygates/project_status?projectKey=$(sonarProjectKey)"
+        CURL_HEADER_AUTH="-u $(SONAR_TOKEN):"
+        CURL_OUTPUT_FILE="sonarqube_quality_gate_raw_response.json"
+        
+        echo "Attempting to fetch SonarQube quality gate status from: $CURL_URL"
+        
+        # Curl komutunu çalıştır ve çıktıyı dosyaya kaydet
+        # Hata durumunda (HTTP 4xx/5xx) bile dosyanın oluştuğundan emin olmak için --fail kaldırıldı,
+        # ve hata çıktısını da dosyaya yazmak için 2>&1 yönlendirmesi eklendi.
+        # Bu şekilde, curl bir hata sayfası veya boş yanıt döndürse bile dosyayı görebiliriz.
+        curl -s --insecure $CURL_HEADER_AUTH "$CURL_URL" > $CURL_OUTPUT_FILE 2>&1
+        CURL_EXIT_CODE=$? # Curl komutunun exit kodunu al
+
+        echo "--- Curl Command Details ---"
+        echo "Command: curl -s --insecure $CURL_HEADER_AUTH \"$CURL_URL\" > $CURL_OUTPUT_FILE 2>&1"
+        echo "Curl Exit Code: $CURL_EXIT_CODE"
+        echo "----------------------------"
+
+        echo "--- Raw SonarQube Quality Gate API Response (from $CURL_OUTPUT_FILE) ---"
+        if [ -f "$CURL_OUTPUT_FILE" ]; then # Dosya var mı? (boş olsa bile)
+            if [ -s "$CURL_OUTPUT_FILE" ]; then # Dosya boş değil mi?
+                cat "$CURL_OUTPUT_FILE"
+                echo "" # Yeni satır ekle
+            else
+                echo "WARNING: $CURL_OUTPUT_FILE exists but is empty. Curl exited with code $CURL_EXIT_CODE."
+                echo "This means SonarQube API returned no content for the request."
+            fi
+        else
+            echo "ERROR: $CURL_OUTPUT_FILE was NOT created. This might indicate a file system permission issue or a critical curl error."
+        fi
+        echo "----------------------------------------------------------------------"
+        
+        # jq'yu çalıştırmak için koşul ekle
+        SONAR_STATUS="API_ERROR_UNKNOWN" # Varsayılan hata durumu
+        if [ -s "$CURL_OUTPUT_FILE" ]; then # Sadece dosya varsa ve boş değilse jq'yu çalıştır
+            # jq ile status'u çek. Hata olursa (örn: JSON parse edilemezse) varsayılan bir değer ata.
+            SONAR_STATUS_FROM_JQ=$(jq -r .projectStatus.status "$CURL_OUTPUT_FILE" 2>/dev/null)
+            if [ -z "$SONAR_STATUS_FROM_JQ" ] || [ "$SONAR_STATUS_FROM_JQ" == "null" ]; then
+                echo "WARNING: jq did not return a valid status (output was empty or 'null'). This might mean JSON structure is unexpected or jq failed."
+                SONAR_STATUS="UNKNOWN_JSON_STRUCTURE" # jq çıktısı boşsa veya "null" ise UNKNOWN yap
+            else
+                SONAR_STATUS="$SONAR_STATUS_FROM_JQ"
+            fi
+        else
+            echo "Skipping jq processing as response file is empty or missing."
+        fi
+
+        echo "Final SonarQube Quality Gate Status: $SONAR_STATUS"
         if [ "$SONAR_STATUS" != "OK" ]; then
             echo "##vso[task.logissue type=error;]SonarQube Quality Gate failed for project $(sonarProjectKey)."
             echo "##vso[task.setvariable variable=sonar_status;isOutput=true]FAILED"
@@ -141,7 +178,7 @@ jobs:
         else
             echo "##vso[task.setvariable variable=sonar_status;isOutput=true]OK"
         fi
-        
+
   - task: Kubernetes@1
     displayName: '2d. Cleanup SonarQube Pod'
     condition: always()
