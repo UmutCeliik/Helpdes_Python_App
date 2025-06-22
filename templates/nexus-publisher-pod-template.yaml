@@ -1,0 +1,37 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: __POD_NAME__
+  namespace: ado-agents # Agent'ınızın çalıştığı namespace
+  labels:
+    app: nexus-publisher
+spec:
+  restartPolicy: Never # İş bitince pod'un yeniden başlamamasını sağlar
+  serviceAccountName: ado-agent-sa # Kube API erişimi için önceki adımda oluşturulan SA
+  containers:
+  - name: publisher
+    image: umut98/nexus-publisher:latest # Kendi özel imajınız buraya gelecek
+    # imagePullPolicy: Always # Yeni imajı çekmek için (geliştirme aşamasında faydalı)
+    env:
+    - name: NEXUS_USERNAME
+      value: __NEXUS_USERNAME__
+    - name: NEXUS_PASSWORD
+      value: __NEXUS_PASSWORD__
+    - name: NEXUS_URL
+      value: __NEXUS_URL__
+    - name: CONTEXT_SUB_PATH # Projenin kaynak dizini (e.g., ticket_service)
+      value: __CONTEXT_SUB_PATH__
+    volumeMounts:
+    - name: agent-volume
+      mountPath: /azp/_work/ # Agent'ın çalışma dizinini pod'a bağlamak için
+  volumes:
+  - name: agent-volume
+    hostPath:
+      path: /azp/_work/ # Bu yolu agent'ınızın çalışma dizinine göre ayarlayın
+      type: DirectoryOrCreate
+  # securityContext: # Eğer özel izinler gerekiyorsa burayı açın
+  #   runAsUser: 0 # Root olarak çalıştırmak için, dikkatli kullanın
+  #   runAsGroup: 0
+  # Diğer olası volumeMounts ve volumes'ler (örneğin kubeconfig, secrets)
+  # Bu pod'un Kubernetes API'si ile doğrudan etkileşime girmesi beklenmez,
+  # sadece dosya sistemine ve Nexus'a erişmesi yeterlidir.

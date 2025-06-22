@@ -224,8 +224,6 @@ jobs:
 
         echo "Building Python distribution for ${{ parameters.serviceName }}..."
         
-        # GEREKSİZ 'cp' KOMUTLARI KALDIRILDI
-        
         # Bağımlılıkları kur ve paketi oluştur
         pip install -r requirements.txt
         pip install wheel twine
@@ -238,94 +236,72 @@ jobs:
         echo "Python artifacts published successfully to Nexus."
     condition: and(succeeded(), eq('${{ parameters.serviceName }}', 'user_service'), eq(variables['sonar_status'], 'OK'))
   
-  - task: UsePythonVersion@0
-    displayName: '4a.1.0. Use Python 3.x'
-    inputs:
-      versionSpec: '3.x' # Python 3'ün herhangi bir sürümünü kullan
-      addToPath: true
-  
-   # PATH'e ekle
-
-  # Python servisleri için yayınlama (Ticket Service)
+  # Python servisleri için yayınlama (Ticket Service) - ARTIK POD İÇİNDE YAPILACAK
   - task: Bash@3
-    displayName: '4a.1. Publish Python Artifacts to Nexus (Ticket Service)'
-    inputs:
-      targetType: 'inline'
-      script: |
-        set -e # Herhangi bir komut başarısız olursa script'i durdur
-
-        echo "Python ve pip kurulumunu kontrol ediyor..."
-        if ! command -v python3 &> /dev/null
-        then
-            echo "Python 3 bulunamadı. Python 3 ve pip3 kurmaya çalışılıyor..."
-            # Agent imajınızın taban işletim sistemine göre uygun paketi yükleyin.
-            # Ubuntu/Debian tabanlı ise (en yaygın):
-            apt-get update && apt-get install -y python3 python3-pip python3-venv
-
-            # Eğer Red Hat/CentOS tabanlı ise (yalnızca apt-get başarısız olursa deneyin):
-            # yum install -y python3 python3-pip
-
-            # Eğer Alpine Linux tabanlı ise (yalnızca yukarıdakiler başarısız olursa deneyin):
-            # apk add --no-cache python3 py3-pip py3-virtualenv
-            
-            echo "Python ve pip kurulumu tamamlandı (ya da zaten mevcuttu)."
-        else
-            echo "Python 3 bulundu. Kurulum adımı atlanıyor."
-        fi
-
-        # 'pip' komutunun 'pip3'e bir symlink olarak var olduğundan emin olun
-        if ! command -v pip &> /dev/null && command -v pip3 &> /dev/null
-        then
-            echo "Pip bulunamadı, ancak pip3 mevcut. pip için symlink oluşturuluyor."
-            # Bu, pip'i PATH'te erişilebilir kılar
-            ln -s "$(command -v pip3)" /usr/local/bin/pip
-        elif ! command -v pip &> /dev/null && ! command -v pip3 &> /dev/null
-        then
-            echo "HATA: Python ve pip kurulumu sonrası pip veya pip3 bulunamadı. Çıkılıyor."
-            exit 1 # Eğer pip hala yoksa pipeline'ı durdur
-        fi
-
-        # Hedef dizine geç
-        cd $(Build.SourcesDirectory)/${{ parameters.serviceName }}
-
-        echo "Python dağıtımı ${{ parameters.serviceName }} için oluşturuluyor..."
-        
-        # GEREKSİZ 'cp' KOMUTLARI KALDIRILDI
-        
-        # Bağımlılıkları kur ve paketi oluştur
-        pip install -r requirements.txt
-        pip install wheel twine
-        python setup.py sdist bdist_wheel
-        
-        echo "Python artifaktları Nexus barındırılan deposuna yayınlanıyor..."
-        REQUESTS_VERIFY=false TWINE_USERNAME=$(NEXUS_USERNAME) TWINE_PASSWORD=$(NEXUS_PASSWORD) twine upload \
-                                --repository-url $(NEXUS_URL)/repository/helpdesk-python-hosted/ \
-                                dist/*
-        echo "Python artifaktları Nexus'a başarıyla yayınlandı."
-    condition: and(succeeded(), eq('${{ parameters.serviceName }}', 'ticket_service'), eq(variables['sonar_status'], 'OK'))
-
-
-
-  # Frontend build çıktısını Nexus Raw'a arşivleme
-  - task: Bash@3
-    displayName: '4b. Archive Frontend Build to Nexus Raw'
+    name: PrepareNexusPublisherManifest
+    displayName: '4a.1. Prepare Nexus Publisher Pod Manifest (Ticket Service)'
     inputs:
       targetType: 'inline'
       script: |
         set -e
-        # DEĞİŞİKLİK: Hedef dizine script içinde geçiliyor.
-        cd $(Build.SourcesDirectory)/${{ parameters.serviceName }}
-
-        echo "Archiving frontend build output to Nexus Raw repository..."
-        tar -czvf frontend-dist-$(Build.BuildId).tar.gz dist/
+        echo "Preparing Nexus Publisher manifest for service: ${{ parameters.serviceName }}..."
         
-        echo "Uploading frontend static files to Nexus Raw repository..."
-        curl -v --insecure -u $(NEXUS_USERNAME):$(NEXUS_PASSWORD) \
-             --upload-file frontend-dist-$(Build.BuildId).tar.gz \
-             $(NEXUS_URL)/repository/frontend-static-files/frontend-dist-$(Build.BuildId).tar.gz
-        echo "Frontend static files archived to Nexus Raw."
-    # workingDirectory: Bu satır kaldırıldı çünkü cd komutu script içinde kullanılıyor.
+        safePodSuffix=$(echo "${{ parameters.serviceName }}" | sed 's/_/-/g')
+        nexusPublisherPodName="nexus-publisher-$(imageTag)-$safePodSuffix"
+        echo "##vso[task.setvariable variable=nexusPublisherPodName]$nexusPublisherPodName"
+        
+        cp templates/nexus-publisher-pod-template.yaml "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
+        sed -i "s|__POD_NAME__|$nexusPublisherPodName|g" "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
+        sed -i "s|__NEXUS_USERNAME__|$NEXUS_USERNAME|g" "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
+        sed -i "s|__NEXUS_PASSWORD__|$NEXUS_PASSWORD|g" "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
+        sed -i "s|__NEXUS_URL__|$NEXUS_URL|g" "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
+        sed -i "s|__CONTEXT_SUB_PATH__|$(Build.SourcesDirectory)/${{ parameters.serviceName }}|g" "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
     condition: and(succeeded(), eq('${{ parameters.serviceName }}', 'ticket_service'), eq(variables['sonar_status'], 'OK'))
+
+  - task: Kubernetes@1
+    displayName: '4a.2. Apply & Run Nexus Publisher Pod (Ticket Service)'
+    inputs:
+      connectionType: 'None'
+      namespace: '$(k8sNamespace)'
+      command: 'apply'
+      arguments: '-f $(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}'
+    condition: and(succeeded(), eq('${{ parameters.serviceName }}', 'ticket_service'), eq(variables['sonar_status'], 'OK'))
+
+  - task: Bash@3
+    name: RunNexusPublisherInPod
+    displayName: '4a.3. Run Python Artifacts Publish in Nexus Pod (Ticket Service)'
+    inputs:
+      targetType: 'inline'
+      script: |
+        set -x # Debug modunu aç
+        echo "Waiting for pod $(nexusPublisherPodName) to start..."; 
+        kubectl wait --for=condition=Ready pod/$(nexusPublisherPodName) --timeout=5m -n $(k8sNamespace);
+        echo "Running commands inside pod $(nexusPublisherPodName)..."
+
+        # Python dağıtımını ve yayınlama komutlarını pod içinde çalıştır
+        kubectl exec -it $(nexusPublisherPodName) -n $(k8sNamespace) -- /bin/bash -c " \
+          cd /azp/_work/$(CONTEXT_SUB_PATH) && \
+          echo 'Building Python distribution for ${{ parameters.serviceName }}...' && \
+          pip install -r requirements.txt && \
+          python setup.py sdist bdist_wheel && \
+          echo 'Publishing Python artifacts to Nexus hosted repository...' && \
+          REQUESTS_VERIFY=false TWINE_USERNAME=\$NEXUS_USERNAME TWINE_PASSWORD=\$NEXUS_PASSWORD twine upload \
+                                --repository-url \$NEXUS_URL/repository/helpdesk-python-hosted/ \
+                                dist/* && \
+          echo 'Python artifacts published successfully to Nexus.' \
+        "
+        # Pod'un loglarını çek
+        kubectl logs $(nexusPublisherPodName) -n $(k8sNamespace) --follow
+    condition: and(succeeded(), eq('${{ parameters.serviceName }}', 'ticket_service'), eq(variables['sonar_status'], 'OK'))
+
+  - task: Kubernetes@1
+    displayName: '4a.4. Cleanup Nexus Publisher Pod (Ticket Service)'
+    condition: always()
+    inputs:
+      connectionType: 'None'
+      namespace: '$(k8sNamespace)'
+      command: 'delete'
+      arguments: 'pod/$(nexusPublisherPodName) --ignore-not-found=true'
 
   # BÖLÜM 5: SBOM Üretimi ve Nexus'a Yükleme (Örnek)
   - task: Bash@3
