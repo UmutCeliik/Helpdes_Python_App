@@ -4,18 +4,17 @@ kind: Pod
 metadata:
   name: __POD_NAME__
 spec:
-  # hostAliases bloğu burada kalabilir, ancak iç adres için DNS sorununu çözmek için yeterli değil.
-  # Dışarıdaki FQDN için hala işe yarayabilir, şimdilik dokunmayalım.
   hostAliases:
-  - ip: "10.77.3.203"
+  # Host alias'ları tekrar ekle ve doğru olduğundan emin ol.
+  # Bu, curl ve sonar-scanner CLI'ın doğrudan IP'yi kullanması için önemli.
+  - ip: "10.77.3.203" # SonarQube'un dış erişim IP'si
     hostnames:
     - "sonarqube.cloudpro.com.tr"
     - "harbor.cloudpro.com.tr"
     - "vault.cloudpro.com.tr"
     - "keycloak.cloudpro.com.tr"
     - "argo.cloudpro.com.tr"
-    - "nexus.cloudpro.com.tr"
-
+  
   volumes:
   - name: workspace
     emptyDir: {}
@@ -61,33 +60,67 @@ spec:
     args:
     - |
       set -e
-      echo "--- Debugging DNS in Pod ---"
+      echo "--- Debugging DNS in Pod (Minimal Image) ---"
       echo "Current working directory: $(pwd)"
       echo "Content of /etc/resolv.conf:"
       cat /etc/resolv.conf
-
-      # dnsutils (nslookup, dig) kurmaya çalışalım
-      # SonarScanner CLI imajı genellikle Debian tabanlıdır.
-      echo "Attempting to install dnsutils..."
-      apt-get update && apt-get install -y dnsutils || \
-      # Eğer Debian değilse ve Alpine ise:
-      apk add --no-cache bind-tools || \
-      echo "WARNING: Could not install dnsutils/bind-tools. DNS lookup tests might fail."
-
-      echo "DNS Lookup for sonarqube.sonarqube.svc.cluster.local (Internal Cluster DNS Check):"
-      nslookup sonarqube.sonarqube.svc.cluster.local || echo "nslookup command failed. DNS resolution issue might persist."
-      echo "DNS Lookup for kubernetes.default.svc.cluster.local (Kubernetes API - Health Check):"
-      nslookup kubernetes.default.svc.cluster.local || echo "nslookup command failed for Kubernetes API. General DNS issue."
       echo "--- End Debugging DNS ---"
       
-      echo "Starting SonarScanner with custom SSL truststore..."
+      echo "Starting SonarScanner with direct IP for sonar.host.url..."
+      
+      # SONAR_URL'in dışarıdan FQDN (sonarqube.cloudpro.com.tr) geldiğini varsayarsak,
+      # bunu IP'ye çevirip kullanmamız gerekiyor.
+      # Ancak imajda DNS çözümleme sorunu olduğu için,
+      # en iyisi SONAR_URL'i direkt olarak azp-pipelines.yml içinde IP olarak tanımlamak veya
+      # burada SONAR_URL'in dışarıdaki tanımlanan IP'sini kullanmak.
+      
+      # Senaryo 1: SONAR_URL zaten Azure Pipelines variables'ında IP olarak tanımlıysa (Önceki adımda yaptığımız gibi)
+      # Yani SONAR_URL = http://10.77.3.203:9000
+      SONAR_HOST_URL_FOR_SCANNER=$(SONAR_URL) # -> http://10.77.3.203:9000 gibi bir değer gelecek
+
+      # Senaryo 2: SONAR_URL hala FQDN ise (https://sonarqube.cloudpro.com.tr),
+      # ve hostAliases'ı kullanmak zorundaysak, o zaman curl ile çekilen kalite geçidi için
+      # curl'e de FQDN vermek, ve hostAliases'a güvenmek zorundayız.
+      # Ancak hostAlias'ların bu imajda çalışmadığı görünüyor.
+      # BU NEDENLE, EN KESİN YOL: AZURE PIPELINES'DAKİ SONAR_URL'İ DİREKT İÇ IP VE PORT OLARAK AYARLAMAK.
+
+      # Build-service-job.yml'dan gelen SONAR_URL değişkenini burada kullanacağız.
+      # NOT: sonarqube.cloudpro.com.tr IP'si 10.77.3.203 ise, bu adres kullanılmalı.
+      # Eğer SonarQube Servisi Cluster IP ile http://sonarqube.sonarqube.svc.cluster.local:9000 olarak tanımlandıysa,
+      # ve bu hata devam ediyorsa, o zaman yine hostAliases'a dönüp o SERVİS ADINI IP'ye eşitlemeliyiz.
+
+      # Ancak, loglar nslookup'ın bile çalışmadığını gösterdiği için,
+      # sonarsource/sonar-scanner-cli imajı içindeki tüm DNS çözümlemesi sorunlu.
+      # En pratik ve hatasız yol, sonar.host.url'e FQDN yerine doğrudan IP vermek.
+      # Bunun için SONAR_URL değişkenini azure-pipelines.yml içinde IP olarak tanımlaman gerekiyor.
+      # Örneğin: - name: SONAR_URL value: 'http://10.77.3.203:9000' (veya SonarQube'un doğrudan Cluster IP'si ve portu)
+
+      # Bu çözüm, sonar-scanner CLI'a FQDN'yi çözümletmek yerine, doğrudan hedef IP ve portu vererek DNS sorununu bypass eder.
+      # Eğer SonarQube'a erişim için dışarıdan gelen bir IP kullanıyorsan:
+      SONAR_HOST_IP="10.77.3.203" # SonarQube'un dışarıdan erişilen IP'si
+      SONAR_HOST_PORT="9000" # SonarQube'un dinlediği port
+      SONAR_HOST_URL_FOR_SCANNER="http://${SONAR_HOST_IP}:${SONAR_HOST_PORT}"
+
+      # Eğer SonarQube'a erişim için küme içi servis IP'si kullanıyorsan (daha temiz):
+      # `kubectl get svc -n <sonarqube_namespace> sonarqube -o jsonpath='{.spec.clusterIP}'` komutu ile Cluster IP'sini bul.
+      # Örneğin, IP 10.43.123.45 olsun
+      # SONAR_HOST_IP="10.43.123.45"
+      # SONAR_HOST_PORT="9000"
+      # SONAR_HOST_URL_FOR_SCANNER="http://${SONAR_HOST_IP}:${SONAR_HOST_PORT}"
+
+      # Buradaki komutların doğru çalışması için, $SONAR_URL'in bir IP veya hostAlias ile çözülebilen bir FQDN olmaması durumunda
+      # manuel olarak SonarQube'un erişilebilir IP ve portunu buraya sağlaman gerekir.
+      # En ideali, azure-pipelines.yml içindeki SONAR_URL'i doğrudan IP+Port olarak ayarlamaktır.
+
+      # sonarsource/sonar-scanner-cli imajı `curl` ve `sonar-scanner` için DNS çözümlemesi yapamadığı için,
+      # bu araçlara FQDN yerine direkt IP'yi geçmeliyiz.
+      # Bu nedenle, `SONAR_URL` değişkeninin pipeline'ın kendisinde `http://10.77.3.203:9000` gibi bir IP ve port içermesi kritik.
+      # (Veya küme içi IP:PORT)
       
       sonar-scanner \
-        -Dsonar.host.url=__SONAR_URL__ \
+        -Dsonar.host.url="${SONAR_URL}" \ # Değişkeni doğrudan kullanıyoruz, varsayarak IP ve port içeriyor.
         -Dsonar.login=__SONAR_TOKEN__ \
         -Dsonar.projectKey=__PROJECT_KEY__ \
         -Dsonar.projectName=__PROJECT_KEY__ \
         -Dsonar.sources=. \
         -Dsonar.scm.disabled=true
-
-  restartPolicy: Never
