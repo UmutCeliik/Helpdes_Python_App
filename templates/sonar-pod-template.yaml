@@ -4,6 +4,8 @@ kind: Pod
 metadata:
   name: __POD_NAME__
 spec:
+  # hostAliases bloğu burada kalabilir, ancak iç adres için DNS sorununu çözmek için yeterli değil.
+  # Dışarıdaki FQDN için hala işe yarayabilir, şimdilik dokunmayalım.
   hostAliases:
   - ip: "10.77.3.203"
     hostnames:
@@ -36,15 +38,8 @@ spec:
       cd /workspace
       CLONE_URL=$(echo $GIT_REPO_URL | sed "s,https://,https://$AZP_TOKEN@,")
       git clone $CLONE_URL .
-      # BURADA İZİN DÜZELTMESİ EKLİYORUZ
-      # Klonlanan dizinin ve içeriğinin tüm kullanıcılara yazılabilir olmasını sağlayın
-      # Ya da SonarScanner'ın UID/GID'sine göre ayar yapın.
-      # Varsayılan SonarScanner UID/GID'sinin 1000 olduğunu varsayarak:
-      chown -R 1000:1000 /workspace  # Sahibini 1000:1000 (sonar kullanıcısı) olarak ayarla
-      chmod -R u+w /workspace        # Sahip kullanıcısına yazma izni ver
-      # Alternatif olarak daha geniş izinler için:
-      # chmod -R 777 /workspace # Çok geniş izinler, güvenlik riski taşıyabilir ama sorunu çözer.
-                                # Önceki 2 komut daha güvenli bir yaklaşımdır.
+      chown -R 1000:1000 /workspace
+      chmod -R u+w /workspace
     volumeMounts:
     - name: workspace
       mountPath: /workspace
@@ -66,8 +61,18 @@ spec:
     args:
     - |
       set -e
+      echo "--- Debugging DNS in Pod ---"
+      echo "Current working directory: $(pwd)"
+      echo "Content of /etc/resolv.conf:"
+      cat /etc/resolv.conf
+      echo "DNS Lookup for sonarqube.sonarqube.svc.cluster.local:"
+      nslookup sonarqube.sonarqube.svc.cluster.local # Varsayılan servis adın ve namespace'inle değiştir
+      echo "DNS Lookup for kubernetes.default.svc.cluster.local (Kubernetes API):"
+      nslookup kubernetes.default.svc.cluster.local # Genel Kubernetes API erişimi
+      echo "--- End Debugging DNS ---"
+
       echo "Starting SonarScanner with custom SSL truststore..."
-      
+
       sonar-scanner \
         -Dsonar.host.url=__SONAR_URL__ \
         -Dsonar.login=__SONAR_TOKEN__ \
