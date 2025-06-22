@@ -212,14 +212,6 @@ jobs:
   #   inputs: { connectionType: 'None', namespace: '$(k8sNamespace)', command: 'delete', arguments: 'pod/$(kanikoPodName) --ignore-not-found=true' }
   
   # BÖLÜM 4: ARTIFACT'LARI NEXUS'A YAYINLAMA
-
-  - task: UsePythonVersion@0
-    displayName: '4. Setup Python for Artifact Publishing'
-    inputs:
-      versionSpec: '3.x' # Veya projenize uygun spesifik bir versiyon, örn: '3.11'
-    # Bu adım sadece Python servisleri için çalışır
-    condition: and(succeeded(), or(eq('${{ parameters.serviceName }}', 'user_service'), eq('${{ parameters.serviceName }}', 'ticket_service')), eq(variables['sonar_status'], 'OK'))
-
   # Python servisleri için yayınlama (User Service)
   - task: Bash@3
     displayName: '4a. Publish Python Artifacts to Nexus (User Service)'
@@ -293,12 +285,6 @@ jobs:
         echo "Frontend static files archived to Nexus Raw."
     # workingDirectory: Bu satır kaldırıldı çünkü cd komutu script içinde kullanılıyor.
     condition: and(succeeded(), eq('${{ parameters.serviceName }}', 'ticket_service'), eq(variables['sonar_status'], 'OK'))
-
-  - task: UsePythonVersion@0
-    displayName: 'Setup Python for SBOM'
-    inputs:
-      versionSpec: '3.x' # Veya projenize uygun spesifik bir versiyon '3.11'
-    condition: succeeded()
 
   # BÖLÜM 5: SBOM Üretimi ve Nexus'a Yükleme (Örnek)
   - task: Bash@3
