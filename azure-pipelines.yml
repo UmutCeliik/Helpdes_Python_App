@@ -14,6 +14,7 @@ pool:
 variables:
 - group: SonarQube-Variables # Adım 1'de oluşturduğumuz grubun adı
 - group: Redmine-Integration
+- group: Nexus-Credentials
 - name: harborRepo
   value: 'harbor.cloudpro.com.tr/helpdesk'
 - name: imageTag
