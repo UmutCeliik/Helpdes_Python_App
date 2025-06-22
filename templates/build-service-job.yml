@@ -213,6 +213,13 @@ jobs:
   
   # BÖLÜM 4: ARTIFACT'LARI NEXUS'A YAYINLAMA
 
+  - task: UsePythonVersion@0
+    displayName: '4. Setup Python for Artifact Publishing'
+    inputs:
+      versionSpec: '3.x' # Veya projenize uygun spesifik bir versiyon, örn: '3.11'
+    # Bu adım sadece Python servisleri için çalışır
+    condition: and(succeeded(), or(eq('${{ parameters.serviceName }}', 'user_service'), eq('${{ parameters.serviceName }}', 'ticket_service')), eq(variables['sonar_status'], 'OK'))
+
   # Python servisleri için yayınlama (User Service)
   - task: Bash@3
     displayName: '4a. Publish Python Artifacts to Nexus (User Service)'
@@ -220,23 +227,24 @@ jobs:
       targetType: 'inline'
       script: |
         set -e
-        # DEĞİŞİKLİK: Hedef dizine script içinde geçiliyor.
+        # Hedef dizine geç
         cd $(Build.SourcesDirectory)/${{ parameters.serviceName }}
 
         echo "Building Python distribution for ${{ parameters.serviceName }}..."
-        cp ./requirements.txt .
-        cp ./setup.py . 
+        
+        # GEREKSİZ 'cp' KOMUTLARI KALDIRILDI
+        
+        # Bağımlılıkları kur ve paketi oluştur
         pip install -r requirements.txt
         pip install wheel twine
         python setup.py sdist bdist_wheel
         
         echo "Publishing Python artifacts to Nexus hosted repository..."
         REQUESTS_VERIFY=false TWINE_USERNAME=$(NEXUS_USERNAME) TWINE_PASSWORD=$(NEXUS_PASSWORD) twine upload \
-                             --repository-url $(NEXUS_URL)/repository/helpdesk-python-hosted/ \
-                             dist/*
+                                --repository-url $(NEXUS_URL)/repository/helpdesk-python-hosted/ \
+                                dist/*
         echo "Python artifacts published successfully to Nexus."
-    # workingDirectory: Bu satır kaldırıldı çünkü cd komutu script içinde kullanılıyor.
-    condition: and(succeeded(), eq('${{ parameters.serviceName }}', 'ticket_service'), eq(variables['sonar_status'], 'OK'))
+    condition: and(succeeded(), eq('${{ parameters.serviceName }}', 'user_service'), eq(variables['sonar_status'], 'OK'))
   
   # Python servisleri için yayınlama (Ticket Service)
   - task: Bash@3
@@ -245,23 +253,25 @@ jobs:
       targetType: 'inline'
       script: |
         set -e
-        # DEĞİŞİKLİK: Hedef dizine script içinde geçiliyor.
+        # Hedef dizine geç
         cd $(Build.SourcesDirectory)/${{ parameters.serviceName }}
 
         echo "Building Python distribution for ${{ parameters.serviceName }}..."
-        cp ./requirements.txt .
-        cp ./setup.py .
+
+        # GEREKSİZ 'cp' KOMUTLARI KALDIRILDI
+
+        # Bağımlılıkları kur ve paketi oluştur
         pip install -r requirements.txt
         pip install wheel twine
         python setup.py sdist bdist_wheel
         
         echo "Publishing Python artifacts to Nexus hosted repository..."
         REQUESTS_VERIFY=false TWINE_USERNAME=$(NEXUS_USERNAME) TWINE_PASSWORD=$(NEXUS_PASSWORD) twine upload \
-                             --repository-url $(NEXUS_URL)/repository/helpdesk-python-hosted/ \
-                             dist/*
+                                --repository-url $(NEXUS_URL)/repository/helpdesk-python-hosted/ \
+                                dist/*
         echo "Python artifacts published successfully to Nexus."
-    # workingDirectory: Bu satır kaldırıldı çünkü cd komutu script içinde kullanılıyor.
     condition: and(succeeded(), eq('${{ parameters.serviceName }}', 'ticket_service'), eq(variables['sonar_status'], 'OK'))
+
 
   # Frontend build çıktısını Nexus Raw'a arşivleme
   - task: Bash@3
