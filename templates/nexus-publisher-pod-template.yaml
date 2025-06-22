@@ -7,12 +7,11 @@ metadata:
     app: nexus-publisher
 spec:
   restartPolicy: Never
-  serviceAccountName: ado-agent-sa # Kube API erişimi için bu hala gerekli olabilir
+  serviceAccountName: ado-agent-sa
   
-  # --- YENİ EKLENEN BÖLÜM: Init Containers ---
   initContainers:
   - name: git-cloner
-    image: alpine/git:latest # Hafif bir git istemcisi imajı
+    image: alpine/git:latest
     command: ["/bin/sh", "-c"]
     args:
     - |
@@ -23,28 +22,28 @@ spec:
       # Eğer alt dizin varsa o dizine geç
       if [ -n "$CONTEXT_SUB_PATH_RELATIVE" ]; then
         echo "Changing directory to relative path: $CONTEXT_SUB_PATH_RELATIVE"
-        mv /workspace/src/$CONTEXT_SUB_PATH_RELATIVE/* /workspace/src/ # Alt klasörün içeriğini doğrudan src'ye taşı
-        rmdir /workspace/src/$CONTEXT_SUB_PATH_RELATIVE # Boşalan alt klasörü sil
-        # Bu kısım, projenizin ana dizininin doğrudan /workspace/src altında olmasını sağlar.
-        # Eğer repo kökü sizin projenizin kendisiyse bu mv/rmdir satırları gereksiz olabilir.
-        # Genellikle repo kökü /workspace/src olur ve içindeki projenizin adıyla klasör olur.
+        # Not: Bu mv komutu, eğer repo kökü doğrudan projenin kendisi değilse gereklidir.
+        # Örneğin, repo -> my-monorepo/ticket_service ise ve sadece ticket_service'e gitmek istiyorsanız.
+        # Eğer repo -> ticket_service ise bu satırı kaldırabilirsiniz.
+        # İlk denemede bırakalım, eğer kaynak kod dizini bulunamazsa tekrar bakarız.
+        mv /workspace/src/$CONTEXT_SUB_PATH_RELATIVE/* /workspace/src/ || true # Hata durumunda durma
+        # rmdir /workspace/src/$CONTEXT_SUB_PATH_RELATIVE || true # Boşalan alt klasörü sil
       fi
       echo "Source code cloned successfully."
     env:
     - name: GIT_REPO_URL
-      value: __GIT_REPO_URL__ # Pipeline'dan gelecek (örneğin $(gitRepoUrl))
+      value: __GIT_REPO_URL__
     - name: AZP_TOKEN
-      value: __AZP_TOKEN__   # Pipeline'dan gelecek (örneğin $(System.AccessToken))
-    - name: CONTEXT_SUB_PATH_RELATIVE # Repo'daki projenizin adı (örn: ticket_service)
+      value: __AZP_TOKEN__
+    - name: CONTEXT_SUB_PATH_RELATIVE
       value: __CONTEXT_SUB_PATH_RELATIVE__
     volumeMounts:
     - name: work-volume
-      mountPath: /workspace # Kaynak kodun klonlanacağı paylaşılan dizin
+      mountPath: /workspace
 
-  # --- GÜNCELLENEN BÖLÜM: Containers ---
   containers:
   - name: publisher
-    image: umut98/nexus-publisher:latest # Kendi özel imajınız
+    image: umut98/nexus-publisher:latest
     env:
     - name: NEXUS_USERNAME
       value: __NEXUS_USERNAME__
@@ -52,9 +51,11 @@ spec:
       value: __NEXUS_PASSWORD__
     - name: NEXUS_URL
       value: __NEXUS_URL__
+    - name: SERVICE_NAME # YENİ: serviceName'i ortam değişkeni olarak geçiriyoruz
+      value: __SERVICE_NAME__
     volumeMounts:
     - name: work-volume
-      mountPath: /workspace # Init Container'dan klonlanan kodun okunacağı yer
+      mountPath: /workspace
     command: ["/bin/bash"]
     args:
     - "-c"
@@ -63,7 +64,7 @@ spec:
       # Kaynak kod dizinine geç (şimdi doğrudan /workspace/src içinde olmalı)
       cd /workspace/src/
 
-      echo "Building Python distribution for ${{ parameters.serviceName }}..."
+      echo "Building Python distribution for $SERVICE_NAME..." # DÜZELTİLDİ: $SERVICE_NAME kullanıldı
       pip install -r requirements.txt
       pip install wheel twine
       python setup.py sdist bdist_wheel
@@ -74,8 +75,6 @@ spec:
                                dist/*
       echo "Python artifacts published successfully to Nexus."
 
-  # --- GÜNCELLENEN BÖLÜM: Volumes ---
   volumes:
   - name: work-volume
-    emptyDir: {} # Pod ömrü boyunca kalacak geçici, boş bir dizin
-  # HostPath volume'unu tamamen kaldırın: agent-volume artık yok
+    emptyDir: {}

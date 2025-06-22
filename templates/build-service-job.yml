@@ -255,10 +255,10 @@ jobs:
         sed -i "s|__NEXUS_USERNAME__|$NEXUS_USERNAME|g" "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
         sed -i "s|__NEXUS_PASSWORD__|$NEXUS_PASSWORD|g" "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
         sed -i "s|__NEXUS_URL__|$NEXUS_URL|g" "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
-        # --- YENİ EKLENEN DEĞİŞKENLER ---
         sed -i "s|__GIT_REPO_URL__|$(gitRepoUrl)|g" "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
         sed -i "s|__AZP_TOKEN__|$(System.AccessToken)|g" "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
-        sed -i "s|__CONTEXT_SUB_PATH_RELATIVE__|${{ parameters.serviceName }}|g" "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}" # Sadece servis adı
+        sed -i "s|__CONTEXT_SUB_PATH_RELATIVE__|${{ parameters.serviceName }}|g" "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
+        sed -i "s|__SERVICE_NAME__|${{ parameters.serviceName }}|g" "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}" # YENİ SED KOMUTU
     condition: and(succeeded(), eq('${{ parameters.serviceName }}', 'ticket_service'), eq(variables['sonar_status'], 'OK'))
 
 
