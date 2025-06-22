@@ -238,6 +238,14 @@ jobs:
         echo "Python artifacts published successfully to Nexus."
     condition: and(succeeded(), eq('${{ parameters.serviceName }}', 'user_service'), eq(variables['sonar_status'], 'OK'))
   
+  - task: UsePythonVersion@0
+    displayName: '4a.1.0. Use Python 3.x'
+    inputs:
+      versionSpec: '3.x' # Python 3'ün herhangi bir sürümünü kullan
+      addToPath: true
+  
+   # PATH'e ekle
+
   # Python servisleri için yayınlama (Ticket Service)
   - task: Bash@3
     displayName: '4a.1. Publish Python Artifacts to Nexus (Ticket Service)'
@@ -250,19 +258,18 @@ jobs:
 
         echo "Building Python distribution for ${{ parameters.serviceName }}..."
 
-        # GEREKSİZ 'cp' KOMUTLARI KALDIRILDI
-
         # Bağımlılıkları kur ve paketi oluştur
         pip install -r requirements.txt
         pip install wheel twine
         python setup.py sdist bdist_wheel
-        
+
         echo "Publishing Python artifacts to Nexus hosted repository..."
         REQUESTS_VERIFY=false TWINE_USERNAME=$(NEXUS_USERNAME) TWINE_PASSWORD=$(NEXUS_PASSWORD) twine upload \
-                                --repository-url $(NEXUS_URL)/repository/helpdesk-python-hosted/ \
-                                dist/*
+                                 --repository-url $(NEXUS_URL)/repository/helpdesk-python-hosted/ \
+                                 dist/*
         echo "Python artifacts published successfully to Nexus."
     condition: and(succeeded(), eq('${{ parameters.serviceName }}', 'ticket_service'), eq(variables['sonar_status'], 'OK'))
+
 
 
   # Frontend build çıktısını Nexus Raw'a arşivleme
