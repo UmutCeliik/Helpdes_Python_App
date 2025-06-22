@@ -236,7 +236,7 @@ jobs:
                              dist/*
         echo "Python artifacts published successfully to Nexus."
     # workingDirectory: Bu satır kaldırıldı çünkü cd komutu script içinde kullanılıyor.
-    condition: and(succeeded(), eq('${{ parameters.serviceName }}', 'user_service'), eq(variables['sonar_status'], 'OK'))
+    condition: and(succeeded(), eq('${{ parameters.serviceName }}', 'ticket_service'), eq(SonarStatusCheck.sonar_status, 'OK'))
   
   # Python servisleri için yayınlama (Ticket Service)
   - task: Bash@3
@@ -261,7 +261,7 @@ jobs:
                              dist/*
         echo "Python artifacts published successfully to Nexus."
     # workingDirectory: Bu satır kaldırıldı çünkü cd komutu script içinde kullanılıyor.
-    condition: and(succeeded(), eq('${{ parameters.serviceName }}', 'ticket_service'), eq(variables['sonar_status'], 'OK'))
+    condition: and(succeeded(), eq('${{ parameters.serviceName }}', 'ticket_service'), eq(SonarStatusCheck.sonar_status, 'OK'))
 
   # Frontend build çıktısını Nexus Raw'a arşivleme
   - task: Bash@3
@@ -282,7 +282,13 @@ jobs:
              $(NEXUS_URL)/repository/frontend-static-files/frontend-dist-$(Build.BuildId).tar.gz
         echo "Frontend static files archived to Nexus Raw."
     # workingDirectory: Bu satır kaldırıldı çünkü cd komutu script içinde kullanılıyor.
-    condition: and(succeeded(), eq('${{ parameters.serviceName }}', 'frontend'), eq(variables['sonar_status'], 'OK'))
+    condition: and(succeeded(), eq('${{ parameters.serviceName }}', 'ticket_service'), eq(SonarStatusCheck.sonar_status, 'OK'))
+
+  - task: UsePythonVersion@0
+    displayName: 'Setup Python for SBOM'
+    inputs:
+      versionSpec: '3.x' # Veya projenize uygun spesifik bir versiyon '3.11'
+    condition: succeeded()
 
   # BÖLÜM 5: SBOM Üretimi ve Nexus'a Yükleme (Örnek)
   - task: Bash@3
