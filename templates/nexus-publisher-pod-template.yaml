@@ -28,9 +28,8 @@ spec:
     - "-c"
     - |
       set -e
-      # Kaynak kod dizinine geç
-      cd /azp/_work/1/s/$(CONTEXT_SUB_PATH) # Burada `1/s` sabit yolunu ekledim.
-                                         # Lütfen bu yolun agent'ınızdaki gerçek yol ile eşleştiğinden emin olun.
+      # Kaynak kod dizinine geç - YOL DÜZELTİLDİ!
+      cd $(CONTEXT_SUB_PATH) 
 
       echo "Building Python distribution for ${{ parameters.serviceName }}..."
       pip install -r requirements.txt
@@ -38,7 +37,6 @@ spec:
       python setup.py sdist bdist_wheel
       
       echo "Publishing Python artifacts to Nexus hosted repository..."
-      # Environment değişkenlerini direkt kullanın, pod'a geçirildiler
       REQUESTS_VERIFY=false TWINE_USERNAME=$NEXUS_USERNAME TWINE_PASSWORD=$NEXUS_PASSWORD twine upload \
                                --repository-url $NEXUS_URL/repository/helpdesk-python-hosted/ \
                                dist/*
