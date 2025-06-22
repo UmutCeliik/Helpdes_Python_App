@@ -14,8 +14,8 @@ spec:
     - "vault.cloudpro.com.tr"
     - "keycloak.cloudpro.com.tr"
     - "argo.cloudpro.com.tr"
-    - "core.harbor.domain" # Harbor'ın dahili domain adı, genellikle harbor'ın endpoint'i ile aynı olur.
-
+    - "core.harbor.domain"
+    - "nexus.cloudpro.com.tr"
   volumes:
   - name: workspace # Git deposunun kopyalanacağı ve Dockerfile'ın bulunacağı boş dizin
     emptyDir: {}

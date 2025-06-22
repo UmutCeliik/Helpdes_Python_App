@@ -29,6 +29,30 @@ spec:
     - name: workspace
       mountPath: /workspace
 
+  # containers:
+  # - name: scanner
+  #   image: __SCANNER_IMAGE__
+  #   workingDir: /workspace/__CONTEXT_SUB_PATH__
+  #   command: ["/bin/sh", "-c"]
+  #   args:
+  #   - |
+  #     set -e
+  #     # echo "--- DEBUG: Contents of /workspace after git-checkout ---"
+  #     # ls -lR /workspace # /workspace altındaki her şeyi recursive listeler
+  #     # echo "--------------------------------------------------------"
+
+  #     echo "SCA Scan starting for service type: $SERVICE_TYPE"
+  #     if [ "$SERVICE_TYPE" = "frontend" ]; then
+  #       echo "Running Node.js SCA Scan in $(pwd)..."
+  #       npm install
+  #       npm audit --audit-level=moderate || (echo "npm audit found vulnerabilities" && exit 1)
+  #     else
+  #       echo "Running Python SCA Scan..."
+  #       python -m pip install -r requirements.txt
+  #       python -m pip install pip-audit
+  #       pip-audit
+  #     fi
+
   containers:
   - name: scanner
     image: __SCANNER_IMAGE__
@@ -37,17 +61,21 @@ spec:
     args:
     - |
       set -e
-      # echo "--- DEBUG: Contents of /workspace after git-checkout ---"
-      # ls -lR /workspace # /workspace altındaki her şeyi recursive listeler
-      # echo "--------------------------------------------------------"
-
       echo "SCA Scan starting for service type: $SERVICE_TYPE"
       if [ "$SERVICE_TYPE" = "frontend" ]; then
         echo "Running Node.js SCA Scan in $(pwd)..."
+        # Nexus npm proxy URL'ini burada kullan
+        npm config set registry $(NEXUS_NPM_GROUP_URL)
+        npm config set strict-ssl false # <--- npm için SSL doğrulamasını atla
         npm install
         npm audit --audit-level=moderate || (echo "npm audit found vulnerabilities" && exit 1)
-      else
+      else # Python SCA Scan
         echo "Running Python SCA Scan..."
+        # Nexus PyPI proxy URL'ini burada kullan
+        pip config set global.index-url $(NEXUS_PYPI_GROUP_URL)
+        pip config set global.trusted-host $(NEXUS_HOST)
+        # pip için SSL doğrulamasını atlama (güvenilir host ekleyerek yapılır)
+        # NOT: pip için `--trusted-host` kullanmak, genel olarak `--skip-tls-verify` veya `verify=False` gibi doğrudan atlamaktan daha spesifik ve "biraz daha" güvenli bir yaklaşımdır.
         python -m pip install -r requirements.txt
         python -m pip install pip-audit
         pip-audit
