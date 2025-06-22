@@ -65,14 +65,23 @@ spec:
       echo "Current working directory: $(pwd)"
       echo "Content of /etc/resolv.conf:"
       cat /etc/resolv.conf
-      echo "DNS Lookup for sonarqube.sonarqube.svc.cluster.local:"
-      nslookup sonarqube.sonarqube.svc.cluster.local # Varsayılan servis adın ve namespace'inle değiştir
-      echo "DNS Lookup for kubernetes.default.svc.cluster.local (Kubernetes API):"
-      nslookup kubernetes.default.svc.cluster.local # Genel Kubernetes API erişimi
+
+      # dnsutils (nslookup, dig) kurmaya çalışalım
+      # SonarScanner CLI imajı genellikle Debian tabanlıdır.
+      echo "Attempting to install dnsutils..."
+      apt-get update && apt-get install -y dnsutils || \
+      # Eğer Debian değilse ve Alpine ise:
+      apk add --no-cache bind-tools || \
+      echo "WARNING: Could not install dnsutils/bind-tools. DNS lookup tests might fail."
+
+      echo "DNS Lookup for sonarqube.sonarqube.svc.cluster.local (Internal Cluster DNS Check):"
+      nslookup sonarqube.sonarqube.svc.cluster.local || echo "nslookup command failed. DNS resolution issue might persist."
+      echo "DNS Lookup for kubernetes.default.svc.cluster.local (Kubernetes API - Health Check):"
+      nslookup kubernetes.default.svc.cluster.local || echo "nslookup command failed for Kubernetes API. General DNS issue."
       echo "--- End Debugging DNS ---"
-
+      
       echo "Starting SonarScanner with custom SSL truststore..."
-
+      
       sonar-scanner \
         -Dsonar.host.url=__SONAR_URL__ \
         -Dsonar.login=__SONAR_TOKEN__ \

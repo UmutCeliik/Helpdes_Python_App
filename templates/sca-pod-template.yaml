@@ -29,30 +29,6 @@ spec:
     - name: workspace
       mountPath: /workspace
 
-  # containers:
-  # - name: scanner
-  #   image: __SCANNER_IMAGE__
-  #   workingDir: /workspace/__CONTEXT_SUB_PATH__
-  #   command: ["/bin/sh", "-c"]
-  #   args:
-  #   - |
-  #     set -e
-  #     # echo "--- DEBUG: Contents of /workspace after git-checkout ---"
-  #     # ls -lR /workspace # /workspace altındaki her şeyi recursive listeler
-  #     # echo "--------------------------------------------------------"
-
-  #     echo "SCA Scan starting for service type: $SERVICE_TYPE"
-  #     if [ "$SERVICE_TYPE" = "frontend" ]; then
-  #       echo "Running Node.js SCA Scan in $(pwd)..."
-  #       npm install
-  #       npm audit --audit-level=moderate || (echo "npm audit found vulnerabilities" && exit 1)
-  #     else
-  #       echo "Running Python SCA Scan..."
-  #       python -m pip install -r requirements.txt
-  #       python -m pip install pip-audit
-  #       pip-audit
-  #     fi
-
   containers:
   - name: scanner
     image: __SCANNER_IMAGE__
@@ -61,34 +37,21 @@ spec:
     args:
     - |
       set -e
-      echo "--- Debugging DNS in Pod ---"
-      echo "Current working directory: $(pwd)"
-      echo "Content of /etc/resolv.conf:"
-      cat /etc/resolv.conf
+      # echo "--- DEBUG: Contents of /workspace after git-checkout ---"
+      # ls -lR /workspace # /workspace altındaki her şeyi recursive listeler
+      # echo "--------------------------------------------------------"
 
-      # dnsutils (nslookup, dig) kurmaya çalışalım
-      # SonarScanner CLI imajı genellikle Debian tabanlıdır.
-      echo "Attempting to install dnsutils..."
-      apt-get update && apt-get install -y dnsutils || \
-      # Eğer Debian değilse ve Alpine ise:
-      apk add --no-cache bind-tools || \
-      echo "WARNING: Could not install dnsutils/bind-tools. DNS lookup tests might fail."
-
-      echo "DNS Lookup for sonarqube.sonarqube.svc.cluster.local (Internal Cluster DNS Check):"
-      nslookup sonarqube.sonarqube.svc.cluster.local || echo "nslookup command failed. DNS resolution issue might persist."
-      echo "DNS Lookup for kubernetes.default.svc.cluster.local (Kubernetes API - Health Check):"
-      nslookup kubernetes.default.svc.cluster.local || echo "nslookup command failed for Kubernetes API. General DNS issue."
-      echo "--- End Debugging DNS ---"
-      
-      echo "Starting SonarScanner with custom SSL truststore..."
-      
-      sonar-scanner \
-        -Dsonar.host.url=__SONAR_URL__ \
-        -Dsonar.login=__SONAR_TOKEN__ \
-        -Dsonar.projectKey=__PROJECT_KEY__ \
-        -Dsonar.projectName=__PROJECT_KEY__ \
-        -Dsonar.sources=. \
-        -Dsonar.scm.disabled=true
+      echo "SCA Scan starting for service type: $SERVICE_TYPE"
+      if [ "$SERVICE_TYPE" = "frontend" ]; then
+        echo "Running Node.js SCA Scan in $(pwd)..."
+        npm install
+        npm audit --audit-level=moderate || (echo "npm audit found vulnerabilities" && exit 1)
+      else
+        echo "Running Python SCA Scan..."
+        python -m pip install -r requirements.txt
+        python -m pip install pip-audit
+        pip-audit
+      fi
     
     env:
     - name: SERVICE_TYPE
