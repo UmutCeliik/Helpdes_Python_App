@@ -255,8 +255,12 @@ jobs:
         sed -i "s|__NEXUS_USERNAME__|$NEXUS_USERNAME|g" "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
         sed -i "s|__NEXUS_PASSWORD__|$NEXUS_PASSWORD|g" "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
         sed -i "s|__NEXUS_URL__|$NEXUS_URL|g" "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
-        sed -i "s|__CONTEXT_SUB_PATH__|$(Build.SourcesDirectory)/${{ parameters.serviceName }}|g" "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
+        # --- YENİ EKLENEN DEĞİŞKENLER ---
+        sed -i "s|__GIT_REPO_URL__|$(gitRepoUrl)|g" "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
+        sed -i "s|__AZP_TOKEN__|$(System.AccessToken)|g" "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
+        sed -i "s|__CONTEXT_SUB_PATH_RELATIVE__|${{ parameters.serviceName }}|g" "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}" # Sadece servis adı
     condition: and(succeeded(), eq('${{ parameters.serviceName }}', 'ticket_service'), eq(variables['sonar_status'], 'OK'))
+
 
   - task: Kubernetes@1
     displayName: '4a.2. Apply & Run Nexus Publisher Pod (Ticket Service)'
@@ -276,7 +280,7 @@ jobs:
         set -x # Debug modunu aç
         echo "Waiting for pod $(nexusPublisherPodName) to complete..."; 
         # Pod'un "Completed" durumuna gelmesini bekle
-        kubectl wait --for=condition=Completed pod/$(nexusPublisherPodName) --timeout=10m -n $(k8sNamespace);
+        kubectl wait --for=condition=Completed pod/$(nexusPublisherPodName) --timeout=3m -n $(k8sNamespace);
         # Pod'un loglarını çek
         kubectl logs $(nexusPublisherPodName) -n $(k8sNamespace) --follow
         # Pod'un exit kodunu kontrol et

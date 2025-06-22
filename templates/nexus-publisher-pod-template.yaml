@@ -7,10 +7,44 @@ metadata:
     app: nexus-publisher
 spec:
   restartPolicy: Never
-  serviceAccountName: ado-agent-sa
+  serviceAccountName: ado-agent-sa # Kube API erişimi için bu hala gerekli olabilir
+  
+  # --- YENİ EKLENEN BÖLÜM: Init Containers ---
+  initContainers:
+  - name: git-cloner
+    image: alpine/git:latest # Hafif bir git istemcisi imajı
+    command: ["/bin/sh", "-c"]
+    args:
+    - |
+      set -e
+      GIT_REPO_URL_WITH_TOKEN=$(echo $GIT_REPO_URL | sed "s,https://,https://$AZP_TOKEN@,")
+      echo "Cloning repository from $GIT_REPO_URL into /workspace/src..."
+      git clone "$GIT_REPO_URL_WITH_TOKEN" /workspace/src/
+      # Eğer alt dizin varsa o dizine geç
+      if [ -n "$CONTEXT_SUB_PATH_RELATIVE" ]; then
+        echo "Changing directory to relative path: $CONTEXT_SUB_PATH_RELATIVE"
+        mv /workspace/src/$CONTEXT_SUB_PATH_RELATIVE/* /workspace/src/ # Alt klasörün içeriğini doğrudan src'ye taşı
+        rmdir /workspace/src/$CONTEXT_SUB_PATH_RELATIVE # Boşalan alt klasörü sil
+        # Bu kısım, projenizin ana dizininin doğrudan /workspace/src altında olmasını sağlar.
+        # Eğer repo kökü sizin projenizin kendisiyse bu mv/rmdir satırları gereksiz olabilir.
+        # Genellikle repo kökü /workspace/src olur ve içindeki projenizin adıyla klasör olur.
+      fi
+      echo "Source code cloned successfully."
+    env:
+    - name: GIT_REPO_URL
+      value: __GIT_REPO_URL__ # Pipeline'dan gelecek (örneğin $(gitRepoUrl))
+    - name: AZP_TOKEN
+      value: __AZP_TOKEN__   # Pipeline'dan gelecek (örneğin $(System.AccessToken))
+    - name: CONTEXT_SUB_PATH_RELATIVE # Repo'daki projenizin adı (örn: ticket_service)
+      value: __CONTEXT_SUB_PATH_RELATIVE__
+    volumeMounts:
+    - name: work-volume
+      mountPath: /workspace # Kaynak kodun klonlanacağı paylaşılan dizin
+
+  # --- GÜNCELLENEN BÖLÜM: Containers ---
   containers:
   - name: publisher
-    image: umut98/nexus-publisher:latest
+    image: umut98/nexus-publisher:latest # Kendi özel imajınız
     env:
     - name: NEXUS_USERNAME
       value: __NEXUS_USERNAME__
@@ -18,18 +52,16 @@ spec:
       value: __NEXUS_PASSWORD__
     - name: NEXUS_URL
       value: __NEXUS_URL__
-    - name: CONTEXT_SUB_PATH # Bu path, /azp/_work/ altındaki serviceName dizini olacak
-      value: __CONTEXT_SUB_PATH__
     volumeMounts:
-    - name: agent-volume
-      mountPath: /azp/_work/ # Agent'ın çalışma dizinini pod'a bağlamak için
-    command: ["/bin/bash"] # Kabuğu başlat
-    args: # Bu kabuk içinde çalışacak komutlar
+    - name: work-volume
+      mountPath: /workspace # Init Container'dan klonlanan kodun okunacağı yer
+    command: ["/bin/bash"]
+    args:
     - "-c"
     - |
       set -e
-      # Kaynak kod dizinine geç - YOL DÜZELTİLDİ!
-      cd $(CONTEXT_SUB_PATH) 
+      # Kaynak kod dizinine geç (şimdi doğrudan /workspace/src içinde olmalı)
+      cd /workspace/src/
 
       echo "Building Python distribution for ${{ parameters.serviceName }}..."
       pip install -r requirements.txt
@@ -41,8 +73,9 @@ spec:
                                --repository-url $NEXUS_URL/repository/helpdesk-python-hosted/ \
                                dist/*
       echo "Python artifacts published successfully to Nexus."
+
+  # --- GÜNCELLENEN BÖLÜM: Volumes ---
   volumes:
-  - name: agent-volume
-    hostPath:
-      path: /azp/_work/ # Bu yolu agent'ınızın çalışma dizinine göre ayarlayın
-      type: DirectoryOrCreate
+  - name: work-volume
+    emptyDir: {} # Pod ömrü boyunca kalacak geçici, boş bir dizin
+  # HostPath volume'unu tamamen kaldırın: agent-volume artık yok
