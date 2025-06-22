@@ -8,6 +8,15 @@ metadata:
 spec:
   restartPolicy: Never
   serviceAccountName: ado-agent-sa
+  hostAliases:
+  - ip: "10.77.3.203"
+    hostnames:
+    - "sonarqube.cloudpro.com.tr"
+    - "harbor.cloudpro.com.tr"
+    - "vault.cloudpro.com.tr"
+    - "keycloak.cloudpro.com.tr"
+    - "argo.cloudpro.com.tr"
+    - "nexus.cloudpro.com.tr"
   
   initContainers:
   - name: git-cloner
