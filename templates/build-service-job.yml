@@ -69,6 +69,10 @@ jobs:
   # ===================================================================
   # BÖLÜM 2: SONARQUBE TARAMA POD'U
   # ===================================================================
+  - task: Kubernetes@1
+    displayName: '2b. Apply & Run SonarQube Pod'
+    inputs: { connectionType: 'None', namespace: '$(k8sNamespace)', command: 'apply', arguments: '-f $(kanikoFinalFile)-sonar-$(serviceName)' }
+
   - task: Bash@3
     name: PrepareSonarManifest
     displayName: '2a. Prepare SonarQube Pod Manifest'
@@ -97,10 +101,7 @@ jobs:
         sed -i "s|__SONAR_URL__|$SONAR_URL_FROM_PIPELINE|g" "$(kanikoFinalFile)-sonar-$(serviceName)"
         sed -i "s|__SONAR_TOKEN__|$SONAR_TOKEN_FROM_PIPELINE|g" "$(kanikoFinalFile)-sonar-$(serviceName)"
         sed -i "s|__PROJECT_KEY__|$SONAR_KEY_FROM_PIPELINE|g" "$(kanikoFinalFile)-sonar-$(serviceName)"
-  # ... Diğer SonarQube adımları aynı kalır ...
-  - task: Kubernetes@1
-    displayName: '2b. Apply & Run SonarQube Pod'
-    inputs: { connectionType: 'None', namespace: '$(k8sNamespace)', command: 'apply', arguments: '-f $(kanikoFinalFile)-sonar-$(serviceName)' }
+  
   - task: Bash@3
     displayName: '2c. Wait for SonarQube Pod to Complete & Get Logs'
     inputs:
@@ -155,6 +156,7 @@ jobs:
   
   # BÖLÜM 4: ARTIFACT'LARI NEXUS'A YAYINLAMA
 
+  # Python servisleri için yayınlama (User Service)
   - task: Bash@3
     displayName: '4a. Publish Python Artifacts to Nexus (User Service)'
     inputs:
@@ -176,6 +178,7 @@ jobs:
     workingDirectory: '$(Build.SourcesDirectory)/${{ parameters.serviceName }}'
     condition: and(succeeded(), eq('${{ parameters.serviceName }}', 'user_service'), eq(variables['sonar_status'], 'OK'))
   
+  # Python servisleri için yayınlama (Ticket Service)
   - task: Bash@3
     displayName: '4a.1. Publish Python Artifacts to Nexus (Ticket Service)'
     inputs:
@@ -197,7 +200,7 @@ jobs:
     workingDirectory: '$(Build.SourcesDirectory)/${{ parameters.serviceName }}'
     condition: and(succeeded(), eq('${{ parameters.serviceName }}', 'ticket_service'), eq(variables['sonar_status'], 'OK'))
 
-
+  # Frontend build çıktısını Nexus Raw'a arşivleme
   - task: Bash@3
     displayName: '4b. Archive Frontend Build to Nexus Raw'
     inputs:
@@ -214,7 +217,6 @@ jobs:
         echo "Frontend static files archived to Nexus Raw."
     workingDirectory: '$(Build.SourcesDirectory)/${{ parameters.serviceName }}'
     condition: and(succeeded(), eq('${{ parameters.serviceName }}', 'frontend'), eq(variables['sonar_status'], 'OK'))
-
 
   # BÖLÜM 5: SBOM Üretimi ve Nexus'a Yükleme (Örnek)
   - task: Bash@3
