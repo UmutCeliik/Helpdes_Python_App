@@ -9,17 +9,6 @@ spec:
   restartPolicy: Never
   serviceAccountName: ado-agent-sa
   
-  # hostAliases bloğunu tamamen kaldırın, artık iç servis adı kullanıyoruz
-  # hostAliases:
-  # - ip: "10.77.3.203"
-  #   hostnames:
-  #   - "sonarqube.cloudpro.com.tr"
-  #   - "harbor.cloudpro.com.tr"
-  #   - "vault.cloudpro.com.tr"
-  #   - "keycloak.cloudpro.com.tr"
-  #   - "argo.cloudpro.com.tr"
-  #   - "nexus.cloudpro.com.tr"
-
   initContainers:
   - name: git-cloner
     image: alpine/git:latest
@@ -27,19 +16,14 @@ spec:
     args:
     - |
       set -e
-      # URL'deki token'ın, 'sed' içerisinde özel karakter sorunları yaratmaması için tırnak işaretleri ve kaçış karakterleri ile dikkatli oluyoruz.
       GIT_REPO_URL_WITH_TOKEN=$(echo "$GIT_REPO_URL" | sed "s,https://,https://$AZP_TOKEN@,")
       echo "Cloning repository from $GIT_REPO_URL into /workspace/src..."
       git clone "$GIT_REPO_URL_WITH_TOKEN" /workspace/src/
+      # Eğer alt dizin varsa o dizine geç
       if [ -n "$CONTEXT_SUB_PATH_RELATIVE" ]; then
-        echo "Changing directory to relative path: $CONTEXT_SUB_PATH_RELATIVE"
-        # Kaynak dizin içeriğini doğrudan /workspace/src'ye taşı
-        # Kaynak repo kökü zaten projenin kendisi ise bu mv komutunu kaldırın.
-        # Örneğin, repo sadece 'ticket_service' içeriğini barındırıyorsa kaldırım
-        # Eğer repo bir monorepo (örn: helpdesk-app-src) ve içinde 'ticket_service' varsa bu mv gerekli.
-        # Bu komutun başarılı olması için dikkatli olun, taşınacak dosya yoksa hata verebilir.
+        echo "Source code cloned into /workspace/src/$CONTEXT_SUB_PATH_RELATIVE."
+        # MV KOMUTUNU KALDIRDIK! Kaynak kodunu klonlandığı yerde bırakıyoruz.
         # mv /workspace/src/$CONTEXT_SUB_PATH_RELATIVE/* /workspace/src/ || true
-        # mv /workspace/src/$CONTEXT_SUB_PATH_RELATIVE/.git* /workspace/src/ || true # .git dizini için
         # rmdir /workspace/src/$CONTEXT_SUB_PATH_RELATIVE || true
       fi
       echo "Source code cloned successfully."
@@ -58,13 +42,12 @@ spec:
   - name: publisher
     image: umut98/nexus-publisher:latest
     env:
-    # Bu değişkenler NEXUS_USERNAME_VAR ve NEXUS_PASSWORD_VAR olarak değiştirilecek
     - name: NEXUS_USERNAME
       value: __NEXUS_USERNAME_VAR__
     - name: NEXUS_PASSWORD
       value: __NEXUS_PASSWORD_VAR__
     - name: NEXUS_URL
-      value: "http://nexus-repository-manager.nexus:8081" # İç Kubernetes servis URL'i
+      value: "http://nexus-repository-manager.nexus:8081"
     - name: SERVICE_NAME
       value: __SERVICE_NAME__
     - name: BUILD_ID 
@@ -77,7 +60,13 @@ spec:
     - "-c"
     - |
       set -e
-      cd /workspace/src/ 
+      # Kaynak kod dizinine geç (şimdi doğrudan /workspace/src/$CONTEXT_SUB_PATH_RELATIVE içinde olmalı)
+      # CONTEXT_SUB_PATH_RELATIVE boş ise (yani repo kökü projenin kendisi ise) sadece /workspace/src'ye cd yaparız.
+      if [ -n "$CONTEXT_SUB_PATH_RELATIVE" ]; then
+        cd "/workspace/src/$CONTEXT_SUB_PATH_RELATIVE/" # DÜZELTİLDİ: Alt dizine cd yapıyoruz
+      else
+        cd "/workspace/src/" # Eğer repo kökü direkt projenin kendisiyse
+      fi
 
       echo "Building Python distribution for $SERVICE_NAME..."
 
@@ -87,20 +76,12 @@ spec:
       else
         echo "WARNING: BUILD_ID not found. Using static version from setup.py."
       fi
-      
-      NEXUS_HOST_ONLY=$(echo "$NEXUS_URL" | sed -E 's|https?://([^/:]+).*|\1|')
 
-      # Pip'i Nexus'u kullanacak şekilde yapılandırıyoruz
-      # Kimlik bilgilerini URL içine gömüyoruz ve --trusted-host kullanıyoruz
-      echo "Configuring pip to use Nexus as package index: $NEXUS_URL/repository/pypi-all/"
-      pip install --index-url "$NEXUS_URL/repository/pypi-all/" \
-                  --trusted-host "$NEXUS_HOST_ONLY" \
-                  --no-cache-dir \
-                  -r requirements.txt
-      pip install --index-url "$NEXUS_URL/repository/pypi-all/" \
-                  --trusted-host "$NEXUS_HOST_ONLY" \
-                  --no-cache-dir \
-                  wheel twine
+      NEXUS_PYPI_INDEX_URL="http://${NEXUS_USERNAME_VAR}:${NEXUS_PASSWORD_VAR}@nexus-repository-manager.nexus:8081/repository/pypi-all/"
+      echo "Configuring pip to use Nexus as package index: $NEXUS_PYPI_INDEX_URL"
+      
+      pip install --index-url "$NEXUS_PYPI_INDEX_URL" --trusted-host nexus-repository-manager.nexus --no-cache-dir -r requirements.txt
+      pip install --index-url "$NEXUS_PYPI_INDEX_URL" --trusted-host nexus-repository-manager.nexus --no-cache-dir wheel twine
 
       python setup.py sdist bdist_wheel
       
