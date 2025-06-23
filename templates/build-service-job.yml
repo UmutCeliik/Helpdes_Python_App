@@ -224,7 +224,7 @@ jobs:
   # Python servisleri için yayınlama (Ticket Service) - ARTIK POD İÇİNDE YAPILACAK
   - task: Bash@3
     name: PrepareNexusPublisherManifest
-    displayName: '4b. Prepare Nexus Publisher Pod Manifest (Ticket Service)' # Adı 4b olarak değişti
+    displayName: '4b. Prepare Nexus Publisher Pod Manifest (Ticket Service)'
     inputs:
       targetType: 'inline'
       script: |
@@ -237,24 +237,20 @@ jobs:
         
         cp templates/nexus-publisher-pod-template.yaml "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
         sed -i "s|__POD_NAME__|$nexusPublisherPodName|g" "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
-        # NEXUS_USERNAME ve NEXUS_PASSWORD'u direkt olarak NEXUS_USERNAME_VAR ve NEXUS_PASSWORD_VAR olarak geçireceğiz
-        # Sed komutları artık `env` bloğunu hedeflemeli, 'value:' kısımlarını değil.
-        # Bu kısım YAML structure'ı doğru varsayarak çalışır.
-        # Lütfen aşağıdaki sed komutlarının doğru YAML formatını koruduğundan emin olun.
-        sed -i "s|__NEXUS_USERNAME_VAR__|$(NEXUS_USERNAME)|g" "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
-        sed -i "s|__NEXUS_PASSWORD_VAR__|$(NEXUS_PASSWORD)|g" "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
         
-        # Diğer değişkenler
-        # NEXUS_URL template içinde sabit olduğu için bu satıra gerek kalmadı:
-        # sed -i "s|value: __NEXUS_URL__|value: http://nexus-repository-manager.nexus:8081|g" "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
+        # YENİ: Username ve Password'u direkt olarak ilgili placeholder'a atıyoruz
+        sed -i "s|value: __NEXUS_USERNAME__|value: $(NEXUS_USERNAME)|g" "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
+        sed -i "s|value: __NEXUS_PASSWORD__|value: $(NEXUS_PASSWORD)|g" "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
+        # NEXUS_USERNAME_VAR ve NEXUS_PASSWORD_VAR isimlendirme düzeltmelerini buradan kaldırıyoruz
+        # sed -i "s|- name: NEXUS_USERNAME|- name: NEXUS_USERNAME_VAR|g" "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
+        # sed -i "s|- name: NEXUS_PASSWORD|- name: NEXUS_PASSWORD_VAR|g" "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
+
         sed -i "s|__GIT_REPO_URL__|$(gitRepoUrl)|g" "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
         sed -i "s|__AZP_TOKEN__|$(System.AccessToken)|g" "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
         sed -i "s|__CONTEXT_SUB_PATH_RELATIVE__|${{ parameters.serviceName }}|g" "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
         sed -i "s|__SERVICE_NAME__|${{ parameters.serviceName }}|g" "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
-        # __BUILD_ID__ placeholder'ını Build.BuildId ile değiştirir
         sed -i "s|__BUILD_ID__|$(Build.BuildId)|g" "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}" 
         
-        # YENİ EKLENEN KISIM: Oluşturulan YAML dosyasını pipeline loglarına yazdır
         echo "--- Generated Nexus Publisher Pod Manifest ---"
         cat "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
         echo "----------------------------------------------"

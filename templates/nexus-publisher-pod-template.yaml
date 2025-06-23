@@ -39,9 +39,9 @@ spec:
     image: umut98/nexus-publisher:latest
     env:
     - name: NEXUS_USERNAME
-      value: __NEXUS_USERNAME_VAR__
+      value: __NEXUS_USERNAME__
     - name: NEXUS_PASSWORD
-      value: __NEXUS_PASSWORD_VAR__
+      value: __NEXUS_PASSWORD__
     - name: NEXUS_URL
       value: "http://nexus-repository-manager.nexus:8081"
     - name: SERVICE_NAME
@@ -60,25 +60,8 @@ spec:
     - "-c"
     - |
       set -e
+      cd "/workspace/src/$CONTEXT_SUB_PATH_RELATIVE/" # Bu zaten doğru çalışıyor
       
-      # --- YENİLENEN HATA AYIKLAMA KOMUTLARI ---
-      echo "--- Hata Ayıklama Bilgisi (YENİ) ---"
-      echo "cd komutu öncesi mevcut dizin: $(pwd)"
-      echo "Init Container tarafından klonlanan /workspace/src/ içeriği:"
-      ls -l /workspace/src/
-      echo "CONTEXT_SUB_PATH_RELATIVE ortam değişkeni değeri: '${CONTEXT_SUB_PATH_RELATIVE}'" # Değişkenin değerini doğrudan yazdır
-      echo "-----------------------------"
-      # --- Hata Ayıklama Komutları Sonu ---
-
-      # Kaynak kod dizinine geç - ARTIK SADECE BU YOLA GEÇİYORUZ
-      # CONTEXT_SUB_PATH_RELATIVE değişkeninin değerinin "ticket_service" olmasını bekliyoruz.
-      cd "/workspace/src/$CONTEXT_SUB_PATH_RELATIVE/" # DÜZELTİLDİ: if/else'i kaldırıp direkt cd yapıyoruz.
-
-      echo "cd komutu sonrası mevcut dizin: $(pwd)"
-      echo "Mevcut dizin içeriği:"
-      ls -l .
-      echo "-----------------------------"
-
       echo "Building Python distribution for $SERVICE_NAME..."
 
       if [ -n "$BUILD_ID" ]; then
@@ -88,7 +71,8 @@ spec:
         echo "WARNING: BUILD_ID not found. Using static version from setup.py."
       fi
 
-      NEXUS_PYPI_INDEX_URL="http://${NEXUS_USERNAME_VAR}:${NEXUS_PASSWORD_VAR}@nexus-repository-manager.nexus:8081/repository/pypi-all/"
+      # NEXUS_PYPI_INDEX_URL'de doğrudan $NEXUS_USERNAME ve $NEXUS_PASSWORD kullanıyoruz
+      NEXUS_PYPI_INDEX_URL="http://${NEXUS_USERNAME}:${NEXUS_PASSWORD}@nexus-repository-manager.nexus:8081/repository/pypi-all/" # DÜZELTİLDİ!
       echo "Configuring pip to use Nexus as package index: $NEXUS_PYPI_INDEX_URL"
       
       pip install --index-url "$NEXUS_PYPI_INDEX_URL" --trusted-host nexus-repository-manager.nexus --no-cache-dir -r requirements.txt
