@@ -19,12 +19,8 @@ spec:
       GIT_REPO_URL_WITH_TOKEN=$(echo "$GIT_REPO_URL" | sed "s,https://,https://$AZP_TOKEN@,")
       echo "Cloning repository from $GIT_REPO_URL into /workspace/src..."
       git clone "$GIT_REPO_URL_WITH_TOKEN" /workspace/src/
-      # Eğer alt dizin varsa o dizine geç
       if [ -n "$CONTEXT_SUB_PATH_RELATIVE" ]; then
         echo "Source code cloned into /workspace/src/$CONTEXT_SUB_PATH_RELATIVE."
-        # MV KOMUTUNU KALDIRDIK! Kaynak kodunu klonlandığı yerde bırakıyoruz.
-        # mv /workspace/src/$CONTEXT_SUB_PATH_RELATIVE/* /workspace/src/ || true
-        # rmdir /workspace/src/$CONTEXT_SUB_PATH_RELATIVE || true
       fi
       echo "Source code cloned successfully."
     env:
@@ -60,13 +56,40 @@ spec:
     - "-c"
     - |
       set -e
-      # Kaynak kod dizinine geç (şimdi doğrudan /workspace/src/$CONTEXT_SUB_PATH_RELATIVE içinde olmalı)
-      # CONTEXT_SUB_PATH_RELATIVE boş ise (yani repo kökü projenin kendisi ise) sadece /workspace/src'ye cd yaparız.
+      
+      # --- YENİ EKLENEN HATA AYIKLAMA KOMUTLARI ---
+      echo "--- Hata Ayıklama Bilgisi ---"
+      echo "cd komutu öncesi mevcut dizin: $(pwd)"
+      echo "Init Container tarafından klonlanan /workspace/src/ içeriği:"
+      ls -l /workspace/src/
+      
       if [ -n "$CONTEXT_SUB_PATH_RELATIVE" ]; then
-        cd "/workspace/src/$CONTEXT_SUB_PATH_RELATIVE/" # DÜZELTİLDİ: Alt dizine cd yapıyoruz
+        TARGET_CD_PATH="/workspace/src/$CONTEXT_SUB_PATH_RELATIVE/"
       else
-        cd "/workspace/src/" # Eğer repo kökü direkt projenin kendisiyse
+        TARGET_CD_PATH="/workspace/src/"
       fi
+      
+      echo "Hedeflenecek dizin: $TARGET_CD_PATH"
+      if [ -d "$TARGET_CD_PATH" ]; then
+          echo "$TARGET_CD_PATH dizin içeriği:"
+          ls -l "$TARGET_CD_PATH"
+      else
+          echo "$TARGET_CD_PATH dizini mevcut değil."
+      fi
+      echo "-----------------------------"
+      # --- Hata Ayıklama Komutları Sonu ---
+
+      # Kaynak kod dizinine geç
+      if [ -n "$CONTEXT_SUB_PATH_RELATIVE" ]; then
+        cd "/workspace/src/$CONTEXT_SUB_PATH_RELATIVE/"
+      else
+        cd "/workspace/src/"
+      fi
+
+      echo "cd komutu sonrası mevcut dizin: $(pwd)"
+      echo "Mevcut dizin içeriği:"
+      ls -l .
+      echo "-----------------------------"
 
       echo "Building Python distribution for $SERVICE_NAME..."
 
