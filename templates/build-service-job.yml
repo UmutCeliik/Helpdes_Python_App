@@ -227,15 +227,12 @@ jobs:
         
         cp templates/nexus-publisher-pod-template.yaml "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
         sed -i "s|__POD_NAME__|$nexusPublisherPodName|g" "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
-        sed -i "s|__NEXUS_USERNAME__|$NEXUS_USERNAME|g" "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
-        sed -i "s|__NEXUS_PASSWORD__|$NEXUS_PASSWORD|g" "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
-        # NEXUS_URL değeri artık doğrudan template'in içine yazıldığı için bu sed komutuna gerek kalmadı:
-        # sed -i "s|value: __NEXUS_URL__|value: http://nexus-repository-manager.nexus:8081|g" "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
-        sed -i "s|__GIT_REPO_URL__|$(gitRepoUrl)|g" "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
-        sed -i "s|__AZP_TOKEN__|$(System.AccessToken)|g" "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
-        sed -i "s|__CONTEXT_SUB_PATH_RELATIVE__|${{ parameters.serviceName }}|g" "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
-        sed -i "s|__SERVICE_NAME__|${{ parameters.serviceName }}|g" "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
-        # YENİ SED KOMUTU: __BUILD_ID__ placeholder'ını Build.BuildId ile değiştirir
+        # YENİ: Username ve Password'u direkt olarak NEXUS_USERNAME_VAR ve NEXUS_PASSWORD_VAR olarak geçireceğiz
+        sed -i "s|- name: NEXUS_USERNAME|- name: NEXUS_USERNAME_VAR|g" "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
+        sed -i "s|- name: NEXUS_PASSWORD|- name: NEXUS_PASSWORD_VAR|g" "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
+        sed -i "s|value: __NEXUS_USERNAME__|value: $(NEXUS_USERNAME)|g" "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
+        sed -i "s|value: __NEXUS_PASSWORD__|value: $(NEXUS_PASSWORD)|g" "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
+        # ...
         sed -i "s|__BUILD_ID__|$(Build.BuildId)|g" "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}" 
     condition: and(succeeded(), eq('${{ parameters.serviceName }}', 'ticket_service'), eq(variables['sonar_status'], 'OK'))
   

@@ -44,43 +44,50 @@ spec:
       value: __NEXUS_PASSWORD__
     - name: NEXUS_URL
       value: "http://nexus-repository-manager.nexus:8081"
-    - name: BUILD_ID
-      value: __BUILD_ID__
     - name: SERVICE_NAME
       value: __SERVICE_NAME__
+    - name: BUILD_ID # Build ID'yi pod'a ortam değişkeni olarak geçiriyoruz
+      value: __BUILD_ID__
+    - name: NEXUS_USERNAME_VAR # Nexus Username'i Bash script'te kullanmak için
+      value: __NEXUS_USERNAME__
+    - name: NEXUS_PASSWORD_VAR # Nexus Password'u Bash script'te kullanmak için
+      value: __NEXUS_PASSWORD__
     volumeMounts:
     - name: work-volume
       mountPath: /workspace
     command: ["/bin/bash"]
     args:
     - "-c"
-    - |
-      set -e
-      cd /workspace/src/
-      echo "Building Python distribution for $SERVICE_NAME..."
+  - |
+    set -e
+    cd /workspace/src/
+    echo "Building Python distribution for $SERVICE_NAME..."
 
-      if [ -n "$BUILD_ID" ]; then
-        echo "Using dynamic version: 0.1.0.$BUILD_ID"
-        # setup.py dosyasındaki 'version=' satırını bul ve dinamik versiyonla değiştir
-        sed -i "s/^    version='.*',$/    version='0.1.0.$BUILD_ID',/" setup.py
-      else
-        echo "WARNING: BUILD_ID not found. Using static version from setup.py."
-      fi
+    if [ -n "$BUILD_ID" ]; then
+      echo "Using dynamic version: 0.1.0.$BUILD_ID"
+      sed -i "s/^    version='.*',$/    version='0.1.0.$BUILD_ID',/" setup.py
+    else
+      echo "WARNING: BUILD_ID not found. Using static version from setup.py."
+    fi
 
-      NEXUS_PYPI_INDEX_URL="http://nexus-repository-manager.nexus:8081/repository/pypi-all/" 
-      echo "Configuring pip to use Nexus as package index: $NEXUS_PYPI_INDEX_URL"
-      
-      # YENİ KISIM: --trusted-host bayrağını ekledik
-      pip install --index-url "$NEXUS_PYPI_INDEX_URL" --trusted-host nexus-repository-manager.nexus --no-cache-dir -r requirements.txt
-      pip install --index-url "$NEXUS_PYPI_INDEX_URL" --trusted-host nexus-repository-manager.nexus --no-cache-dir wheel twine
+    # YENİ KISIM: pip'i Nexus'u kullanacak şekilde yapılandırın
+    # BURAYI KENDİ NEXUS PİPİ GRUP VEYA PROXY REPOSITORY URL'İNİZLE DEĞİŞTİRİN!
+    # Nexus URL'ine kimlik bilgilerini gömüyoruz
+    NEXUS_PYPI_INDEX_URL="http://${NEXUS_USERNAME_VAR}:${NEXUS_PASSWORD_VAR}@nexus-repository-manager.nexus:8081/repository/pypi-all/" # <=== DÜZELTİLDİ!
+    
+    echo "Configuring pip to use Nexus as package index: $NEXUS_PYPI_INDEX_URL"
+    
+    # --trusted-host bayrağını ekledik ve kimlik bilgilerini URL'e gömdük
+    pip install --index-url "$NEXUS_PYPI_INDEX_URL" --trusted-host nexus-repository-manager.nexus --no-cache-dir -r requirements.txt
+    pip install --index-url "$NEXUS_PYPI_INDEX_URL" --trusted-host nexus-repository-manager.nexus --no-cache-dir wheel twine
 
-      python setup.py sdist bdist_wheel
-      
-      echo "Publishing Python artifacts to Nexus hosted repository..."
-      TWINE_USERNAME=$NEXUS_USERNAME TWINE_PASSWORD=$NEXUS_PASSWORD twine upload \
-                              --repository-url $NEXUS_URL/repository/helpdesk-python-hosted/ \
-                              dist/*
-      echo "Python artifacts published successfully to Nexus."
+    python setup.py sdist bdist_wheel
+    
+    echo "Publishing Python artifacts to Nexus hosted repository..."
+    TWINE_USERNAME=$NEXUS_USERNAME_VAR TWINE_PASSWORD=$NEXUS_PASSWORD_VAR twine upload \
+                             --repository-url $NEXUS_URL/repository/helpdesk-python-hosted/ \
+                             dist/*
+    echo "Python artifacts published successfully to Nexus."
 
   volumes:
   - name: work-volume
