@@ -39,6 +39,7 @@ jobs:
     
   steps:
   - checkout: self
+    persistCredentials: true
 
   # # ===================================================================
   # # BÖLÜM 1: SCA TARAMA POD'U (Yorumlu bırakıldı)
@@ -192,7 +193,7 @@ jobs:
         cp templates/nexus-publisher-pod-template.yaml "$finalManifestFile"
         
         # 3. Gerekli tüm placeholder'ları dinamik değerlerle değiştir
-        GIT_REPO_URL_WITH_TOKEN=$(echo "$(gitRepoUrl)" | sed "s,https://,https://$(AZP_TOKEN)@,")
+        GIT_REPO_URL_WITH_TOKEN=$(echo "$(gitRepoUrl)" | sed "s,https://,https://$(System.AccessToken)@,")
         PYPI_GROUP_URL_WITH_CREDS=$(echo "$(NEXUS_INTERNAL_URL)/repository/helpdesk-pypi-all/simple/" | sed "s,http://,http://$(NEXUS_USER):$(NEXUS_PASS)@,")
 
         # 'sed' komutları artık bu scriptin ortamına aktarılmış değişkenleri güvenle kullanabilir.
@@ -206,8 +207,7 @@ jobs:
         sed -i "s|__PYPI_GROUP_URL__|$PYPI_GROUP_URL_WITH_CREDS|g" "$finalManifestFile"
         sed -i "s|__NEXUS_HOST__|$(NEXUS_HOST)|g" "$finalManifestFile"
 
-        # sed -i "s|__SONAR_URL__|$(SONAR_URL)|g" "$(kanikoFinalFile)-sonar-$(serviceName)"
-        # sed -i "s|__SONAR_TOKEN__|$(SONAR_TOKEN)|g" "$(kanikoFinalFile)-sonar-$(serviceName)"
+        # sed -i "s|__AZP_TOKEN__|$AZP_TOKEN_FROM_PIPELINE|g" "$(kanikoFinalFile)-sonar-$(serviceName)"
 
         echo "--- Generated Nexus Publisher Pod Manifest ---"
         cat "$finalManifestFile"

@@ -33,12 +33,10 @@ spec:
   - name: publisher
     image: umut98/nexus-publisher:latest
     env:
-    # --- DEĞİŞİKLİK: 'value' alanları pipeline tarafından doldurulmak üzere boş bırakıldı ---
     - name: NEXUS_USERNAME
-      value: __NEXUS_USERNAME__ # Bu satır build-service-job.yml'de güncellenecek
+      value: __NEXUS_USERNAME__
     - name: NEXUS_PASSWORD
-      value: __NEXUS_PASSWORD__ # Bu satır build-service-job.yml'de güncellenecek
-    # -------------------------------------------------------------------------------------
+      value: __NEXUS_PASSWORD__
     - name: CONTEXT_SUB_PATH_RELATIVE
       value: __CONTEXT_SUB_PATH_RELATIVE__
     - name: PACKAGE_VERSION
