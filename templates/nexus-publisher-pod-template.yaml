@@ -8,8 +8,9 @@ metadata:
 spec:
   restartPolicy: Never
   serviceAccountName: ado-agent-sa
+  
   hostAliases:
-  - ip: "10.77.3.203"
+  - ip: "10.77.3.203" # Bu IP'nin Nexus'unuza erişebildiğinden emin olun
     hostnames:
     - "sonarqube.cloudpro.com.tr"
     - "harbor.cloudpro.com.tr"
@@ -17,7 +18,7 @@ spec:
     - "keycloak.cloudpro.com.tr"
     - "argo.cloudpro.com.tr"
     - "nexus.cloudpro.com.tr"
-  
+
   initContainers:
   - name: git-cloner
     image: alpine/git:latest
@@ -28,15 +29,9 @@ spec:
       GIT_REPO_URL_WITH_TOKEN=$(echo $GIT_REPO_URL | sed "s,https://,https://$AZP_TOKEN@,")
       echo "Cloning repository from $GIT_REPO_URL into /workspace/src..."
       git clone "$GIT_REPO_URL_WITH_TOKEN" /workspace/src/
-      # Eğer alt dizin varsa o dizine geç
       if [ -n "$CONTEXT_SUB_PATH_RELATIVE" ]; then
         echo "Changing directory to relative path: $CONTEXT_SUB_PATH_RELATIVE"
-        # Not: Bu mv komutu, eğer repo kökü doğrudan projenin kendisi değilse gereklidir.
-        # Örneğin, repo -> my-monorepo/ticket_service ise ve sadece ticket_service'e gitmek istiyorsanız.
-        # Eğer repo -> ticket_service ise bu satırı kaldırabilirsiniz.
-        # İlk denemede bırakalım, eğer kaynak kod dizini bulunamazsa tekrar bakarız.
-        mv /workspace/src/$CONTEXT_SUB_PATH_RELATIVE/* /workspace/src/ || true # Hata durumunda durma
-        # rmdir /workspace/src/$CONTEXT_SUB_PATH_RELATIVE || true # Boşalan alt klasörü sil
+        mv /workspace/src/$CONTEXT_SUB_PATH_RELATIVE/* /workspace/src/ || true
       fi
       echo "Source code cloned successfully."
     env:
@@ -60,8 +55,10 @@ spec:
       value: __NEXUS_PASSWORD__
     - name: NEXUS_URL
       value: __NEXUS_URL__
-    - name: SERVICE_NAME # YENİ: serviceName'i ortam değişkeni olarak geçiriyoruz
+    - name: SERVICE_NAME
       value: __SERVICE_NAME__
+    - name: TWINE_VERIFY_SSL # YENİ: SSL doğrulamayı devre dışı bırak
+      value: "false"
     volumeMounts:
     - name: work-volume
       mountPath: /workspace
@@ -70,16 +67,15 @@ spec:
     - "-c"
     - |
       set -e
-      # Kaynak kod dizinine geç (şimdi doğrudan /workspace/src içinde olmalı)
       cd /workspace/src/
-
-      echo "Building Python distribution for $SERVICE_NAME..." # DÜZELTİLDİ: $SERVICE_NAME kullanıldı
+      echo "Building Python distribution for $SERVICE_NAME..."
       pip install -r requirements.txt
       pip install wheel twine
       python setup.py sdist bdist_wheel
       
       echo "Publishing Python artifacts to Nexus hosted repository..."
-      REQUESTS_VERIFY=false TWINE_USERNAME=$NEXUS_USERNAME TWINE_PASSWORD=$NEXUS_PASSWORD twine upload \
+      # TWINE_VERIFY_SSL=false ortam değişkeni otomatik olarak dikkate alınacak
+      TWINE_USERNAME=$NEXUS_USERNAME TWINE_PASSWORD=$NEXUS_PASSWORD twine upload \
                                --repository-url $NEXUS_URL/repository/helpdesk-python-hosted/ \
                                dist/*
       echo "Python artifacts published successfully to Nexus."
