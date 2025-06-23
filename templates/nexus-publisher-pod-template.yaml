@@ -1,3 +1,5 @@
+# templates/nexus-publisher-pod-template.yaml (GÜNCELLENMİŞ)
+# Bu şablon, bir Python paketini derler (wheel/sdist) ve hedeflenen Nexus deposuna (snapshot veya release) yayınlar.
 apiVersion: v1
 kind: Pod
 metadata:
@@ -10,46 +12,45 @@ spec:
   serviceAccountName: ado-agent-sa
   
   initContainers:
+  # 1. Init Container: Git deposunu klonlar
   - name: git-cloner
     image: alpine/git:latest
     command: ["/bin/sh", "-c"]
     args:
     - |
-      set -e
-      GIT_REPO_URL_WITH_TOKEN=$(echo "$GIT_REPO_URL" | sed "s,https://,https://$AZP_TOKEN@,")
-      echo "Cloning repository from $GIT_REPO_URL into /workspace/src..."
-      git clone "$GIT_REPO_URL_WITH_TOKEN" /workspace/src/
-      if [ -n "$CONTEXT_SUB_PATH_RELATIVE" ]; then
-        echo "Source code cloned into /workspace/src/$CONTEXT_SUB_PATH_RELATIVE."
-      fi
+      set -ex # Hata durumunda çık ve komutları logla
+      echo "Cloning repository from __GIT_REPO_URL__ into /workspace/source..."
+      # Not: AZP_TOKEN artık doğrudan URL'ye ekleniyor, bu yüzden env'de olmasına gerek yok.
+      git clone "__GIT_REPO_URL__" /workspace/source
       echo "Source code cloned successfully."
     env:
-    - name: GIT_REPO_URL
-      value: __GIT_REPO_URL__
-    - name: AZP_TOKEN
-      value: __AZP_TOKEN__
-    - name: CONTEXT_SUB_PATH_RELATIVE
-      value: __CONTEXT_SUB_PATH_RELATIVE__
+    - name: GIT_REPO_URL # Bu değer, build-service-job.yml'de token ile birlikte oluşturulur.
+      value: __GIT_REPO_URL_WITH_TOKEN__
     volumeMounts:
     - name: work-volume
       mountPath: /workspace
 
+  # 2. Ana Container: Paketi derler ve yayınlar
   containers:
   - name: publisher
-    image: umut98/nexus-publisher:latest
+    image: umut98/nexus-publisher:latest # Sadece `twine` ve `wheel` içeren minimal bir imaj olmalı
     env:
+    # --- Pipeline tarafından doldurulacak değişkenler ---
     - name: NEXUS_USERNAME
       value: __NEXUS_USERNAME__
     - name: NEXUS_PASSWORD
       value: __NEXUS_PASSWORD__
-    - name: NEXUS_URL
-      value: "http://nexus-repository-manager.nexus:8081"
-    - name: SERVICE_NAME
-      value: __SERVICE_NAME__
-    - name: BUILD_ID 
-      value: "__BUILD_ID__"
     - name: CONTEXT_SUB_PATH_RELATIVE
       value: __CONTEXT_SUB_PATH_RELATIVE__
+    - name: PACKAGE_VERSION # Hedeflenen sürüm (örn: 0.1.0 veya 0.1.0.dev20250623.1)
+      value: __PACKAGE_VERSION__
+    - name: TARGET_REPO_URL # Hedef depo (snapshots veya releases)
+      value: __TARGET_REPO_URL__
+    - name: PYPI_GROUP_URL # Bağımlılıkları çekmek için kullanılacak ana grup depo
+      value: __PYPI_GROUP_URL__
+    - name: NEXUS_HOST # --trusted-host için (örn: nexus-repository-manager.nexus)
+      value: __NEXUS_HOST__
+    # ----------------------------------------------------
     volumeMounts:
     - name: work-volume
       mountPath: /workspace
@@ -57,47 +58,41 @@ spec:
     args:
     - "-c"
     - |
-      set -e
-      # Hata ayıklama komutları aynı kalacak
-      echo "--- Hata Ayıklama Bilgisi (YENİ) ---"
-      echo "cd komutu öncesi mevcut dizin: $(pwd)"
-      echo "Init Container tarafından klonlanan /workspace/src/ içeriği:"
-      ls -l /workspace/src/
-      echo "CONTEXT_SUB_PATH_RELATIVE ortam değişkeni değeri: '${CONTEXT_SUB_PATH_RELATIVE}'"
-      echo "-----------------------------"
+      set -ex # Hata durumunda çık ve komutları logla
 
-      cd "/workspace/src/$CONTEXT_SUB_PATH_RELATIVE/"
+      # 1. Doğru servis dizinine geç
+      cd "/workspace/source/$CONTEXT_SUB_PATH_RELATIVE/"
+      echo "--- Current Directory: $(pwd) ---"
+      ls -la
 
-      echo "cd komutu sonrası mevcut dizin: $(pwd)"
-      echo "Mevcut dizin içeriği:"
-      ls -l .
-      echo "-----------------------------"
+      # 2. setup.py dosyasındaki sürüm numarasını dinamik olarak güncelle
+      echo "Updating version in setup.py to '$PACKAGE_VERSION'"
+      # sed komutu 'version="...'' veya 'version='...'' formatlarını yakalamak için güncellendi.
+      sed -i "s/version=['\"].*['\"]/version='$PACKAGE_VERSION'/" setup.py
+      echo "--- setup.py after version update ---"
+      cat setup.py
+      echo "-------------------------------------"
 
-      echo "Building Python distribution for $SERVICE_NAME..."
+      # 3. Sadece yayınlama için gerekli araçları kur
+      # Bu adım, servisin kendi bağımlılıklarını kurmak yerine sadece twine ve wheel kurar. Bu daha hızlı ve doğrudur.
+      # Bağımlılıklar, pypi-all grubundan çekilir.
+      echo "Installing build tools (wheel, twine) from $PYPI_GROUP_URL..."
+      pip install --no-cache-dir \
+        --index-url "$PYPI_GROUP_URL" \
+        --trusted-host "$NEXUS_HOST" \
+        wheel twine
 
-      if [ -n "$BUILD_ID" ]; then
-        echo "Using dynamic version: 0.1.0.$BUILD_ID"
-        sed -i "s#^    version='.*',#    version='0.1.0.$BUILD_ID',#" setup.py
-      else
-        echo "WARNING: BUILD_ID not found. Using static version from setup.py."
-      fi
-
-      # YENİ KISIM: pip'i Nexus'u kullanacak şekilde yapılandırın
-      # NEXUS_PYPI_INDEX_URL'e '/simple/' uzantısı eklendi!
-      NEXUS_PYPI_INDEX_URL="http://${NEXUS_USERNAME}:${NEXUS_PASSWORD}@nexus-repository-manager.nexus:8081/repository/pypi-all/simple/" # DÜZELTİLDİ!
-      echo "Configuring pip to use Nexus as package index: $NEXUS_PYPI_INDEX_URL"
-      
-      pip install --index-url "$NEXUS_PYPI_INDEX_URL" --trusted-host nexus-repository-manager.nexus --no-cache-dir -r requirements.txt
-      pip install --index-url "$NEXUS_PYPI_INDEX_URL" --trusted-host nexus-repository-manager.nexus --no-cache-dir wheel twine
-
+      # 4. Python paketini derle (source distribution ve wheel)
+      echo "Building the sdist and wheel..."
       python setup.py sdist bdist_wheel
-      
-      echo "Publishing Python artifacts to Nexus hosted repository..."
-      TWINE_USERNAME="$NEXUS_USERNAME" TWINE_PASSWORD="$NEXUS_PASSWORD" twine upload \
-                               --repository-url "$NEXUS_URL/repository/helpdesk-python-hosted/" \
-                               dist/*
-      echo "Python artifacts published successfully to Nexus."
 
+      # 5. Derlenen paketleri hedef depoya (snapshots veya releases) yükle
+      echo "Publishing artifacts to '$TARGET_REPO_URL'..."
+      TWINE_USERNAME="$NEXUS_USERNAME" TWINE_PASSWORD="$NEXUS_PASSWORD" twine upload \
+        --repository-url "$TARGET_REPO_URL" \
+        dist/*
+
+      echo "Artifacts published successfully to Nexus."
   volumes:
   - name: work-volume
     emptyDir: {}

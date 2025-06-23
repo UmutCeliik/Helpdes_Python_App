@@ -1,42 +1,47 @@
+# templates/sbom-generator-pod-template.yaml (GÜNCELLENMİŞ - Resmi cyclonedx/cyclonedx-python İmajı ile)
+# Bu şablon, Python projeleri için özel olarak geliştirilmiş resmi Docker imajını kullanır.
+# Bu yaklaşım, özel imaj oluşturma ve bakım sorunlarını ortadan kaldırarak en stabil çözümü sunar.
 apiVersion: v1
 kind: Pod
 metadata:
   name: __POD_NAME__
-  namespace: ado-agents # Agent'ınızın çalıştığı namespace
+  namespace: ado-agents
   labels:
     app: sbom-generator
 spec:
-  restartPolicy: Never # İş bitince pod'un yeniden başlamamasını sağlar
-  serviceAccountName: ado-agent-sa # Kube API erişimi için önceki adımda oluşturulan SA
+  restartPolicy: Never
+  serviceAccountName: ado-agent-sa
   initContainers:
+  # 1. Init Container: Git deposunu klonlar
   - name: git-cloner
-    image: alpine/git:latest # Git klonlamak için
+    image: alpine/git:latest
     command: ["/bin/sh", "-c"]
     args:
     - |
-      set -e
-      GIT_REPO_URL_WITH_TOKEN=$(echo $GIT_REPO_URL | sed "s,https://,https://$AZP_TOKEN@,")
-      echo "Cloning repository from $GIT_REPO_URL into /workspace/src..."
-      git clone "$GIT_REPO_URL_WITH_TOKEN" /workspace/src/
-      if [ -n "$CONTEXT_SUB_PATH_RELATIVE" ]; then
-        echo "Changing directory to relative path: $CONTEXT_SUB_PATH_RELATIVE"
-        mv /workspace/src/$CONTEXT_SUB_PATH_RELATIVE/* /workspace/src/ || true
-      fi
+      set -ex # Hata durumunda çık ve komutları logla
+      # Klonlama işlemi için token'ı URL'ye ekliyoruz.
+      GIT_REPO_URL_WITH_TOKEN=$(echo "__GIT_REPO_URL__" | sed "s,https://,https://__AZP_TOKEN__@,")
+      echo "Cloning repository from __GIT_REPO_URL__ into /workspace/source..."
+      git clone "$GIT_REPO_URL_WITH_TOKEN" /workspace/source
       echo "Source code cloned successfully."
     env:
     - name: GIT_REPO_URL
       value: __GIT_REPO_URL__
     - name: AZP_TOKEN
       value: __AZP_TOKEN__
-    - name: CONTEXT_SUB_PATH_RELATIVE
-      value: __CONTEXT_SUB_PATH_RELATIVE__
     volumeMounts:
     - name: work-volume
-      mountPath: /workspace # Kaynak kodun klonlanacağı paylaşılan dizin
+      mountPath: /workspace
 
+  # 2. Ana Container: SBOM oluşturur ve yükler
   containers:
   - name: generator
-    image: umut98/sbom-generator:latest # Kendi özel imajınız buraya gelecek
+    # --- EN ÖNEMLİ DEĞİŞİKLİK ---
+    # Özel imaj yerine, CycloneDX projesinin resmi Python imajını kullanıyoruz.
+    image: cyclonedx/cyclonedx-python:latest
+    # ----------------------------
+    # Komutların çalışacağı dizini doğru servis klasörü olarak ayarlıyoruz.
+    workingDir: /workspace/source/__CONTEXT_SUB_PATH_RELATIVE__/
     env:
     - name: NEXUS_USERNAME
       value: __NEXUS_USERNAME__
@@ -46,50 +51,52 @@ spec:
       value: "http://nexus-repository-manager.nexus:8081"
     - name: SERVICE_NAME
       value: __SERVICE_NAME__
-    - name: CONTEXT_SUB_PATH_RELATIVE
+    - name: CONTEXT_SUB_PATH_RELATIVE # workingDir'de kullanıldı
       value: __CONTEXT_SUB_PATH_RELATIVE__
     volumeMounts:
     - name: work-volume
-      mountPath: /workspace # Init Container'dan klonlanan kodun okunacağı yer
-    command: ["/bin/bash"]
+      mountPath: /workspace
+    command: ["/bin/sh", "-c"]
     args:
-    - "-c"
     - |
-      set -e
-      # Hata ayıklama komutları aynı kalacak
-      # ... (önceki hata ayıklama komutları) ...
-      
-      # --- YENİ EKLENEN SBOM HATA AYIKLAMA KOMUTLARI ---
-      echo "--- SBOM Generator Hata Ayıklama Bilgisi ---"
-      echo "Mevcut PATH: $PATH"
-      echo "Python site-packages dizini içeriği:"
-      ls -l /usr/local/lib/python3.11/site-packages/cyclonedx_bom || echo "cyclonedx_bom paket dizini bulunamadı."
-      echo " cyclonedx-bom komutunun nerede olduğunu ara:"
-      which cyclonedx-bom || echo "cyclonedx-bom PATH içinde bulunamadı."
-      find /usr/local/bin /usr/bin -name "cyclonedx-bom" || echo "cyclonedx-bom standart bin dizinlerinde bulunamadı."
-      echo "----------------------------------------------"
-      # --- SBOM Hata Ayıklama Komutları Sonu ---
+      set -ex # Hata durumunda çık ve komutları logla
+      echo "Generating SBOM for $SERVICE_NAME using official cyclonedx/cyclonedx-python image..."
 
-      cd "/workspace/src/$CONTEXT_SUB_PATH_RELATIVE/" # Doğru dizine git
-
-      echo "Generating SBOM for $SERVICE_NAME..."
-      
+      # Python servisleri için SBOM oluşturma
       if [[ "$SERVICE_NAME" == "user_service" || "$SERVICE_NAME" == "ticket_service" ]]; then
-        # pip install cyclonedx-bom # Bu satırı kaldırın, Dockerfile'da yüklü
-        python -m cyclonedx_bom -o sbom.json
+        # --- GÜNCELLENMİŞ KOMUT ---
+        # `cyclonedx-py` komutu, bu imajın ana aracıdır.
+        # `-r` bayrağı, `requirements.txt` dosyasını okuyup bağımlılıkları analiz etmesini sağlar.
+        # `-o` bayrağı ile çıktıyı JSON formatında belirtilen dosyaya yazar.
+        cyclonedx-py -r -o sbom.json
+        # ------------------------
       elif [[ "$SERVICE_NAME" == "frontend" ]]; then
-        echo "Skipping SBOM for frontend in this example, adjust if needed."
+        echo "Skipping SBOM for frontend service."
+        exit 0
+      else
+        echo "Unknown service type: $SERVICE_NAME. Skipping SBOM generation."
         exit 0
       fi
 
+      # Oluşturulan SBOM'u kontrol et
+      if [ ! -s sbom.json ]; then
+          echo "ERROR: SBOM generation failed, sbom.json is empty or not created."
+          exit 1
+      fi
+      
+      echo "--- Generated SBOM Preview ---"
+      head -n 10 sbom.json
+      echo "----------------------------"
+
+      # SBOM dosyasını Nexus'a yüklemek için benzersiz bir isimle yeniden adlandır
       SBOM_FILE="sbom-$(date +%s)-$SERVICE_NAME.json"
       mv sbom.json "$SBOM_FILE"
 
-      echo "Uploading SBOM to Nexus Raw repository..."
+      echo "Uploading SBOM '$SBOM_FILE' to Nexus Raw repository..."
       curl -v -u "$NEXUS_USERNAME:$NEXUS_PASSWORD" \
            --upload-file "$SBOM_FILE" \
            "$NEXUS_URL/repository/sbom-reports/$SBOM_FILE"
-      echo "SBOM uploaded to Nexus."
+      echo "SBOM uploaded to Nexus successfully."
   volumes:
   - name: work-volume
     emptyDir: {}
