@@ -225,10 +225,26 @@ jobs:
       targetType: 'inline'
       script: |
         set -ex
-        kubectl wait --for=condition=Completed pod/$(nexusPublisherPodName) --timeout=3m -n $(k8sNamespace)
-        kubectl logs $(nexusPublisherPodName) -n $(k8sNamespace) --all-containers --follow
+        
+        # "publisher" konteynerinin Terminated olmasını bekle
+        # "--timeout" süresini koruyarak, ancak sadece konteynerin bitmesini kontrol et
+        kubectl wait --for=jsonpath='{.status.containerStatuses[?(@.name=="publisher")].state.terminated.reason}'=Completed \
+          pod/$(nexusPublisherPodName) --timeout=3m -n $(k8sNamespace)
+        
+        echo "Publisher container terminated. Getting logs and checking exit code..."
+        
+        # Pod loglarını çek
+        kubectl logs $(nexusPublisherPodName) -n $(k8sNamespace) --all-containers
+        
+        # "publisher" konteynerinin çıkış kodunu kontrol et
         EXIT_CODE=$(kubectl get pod $(nexusPublisherPodName) -n $(k8sNamespace) -o jsonpath='{.status.containerStatuses[?(@.name=="publisher")].state.terminated.exitCode}')
-        if [ "$EXIT_CODE" -ne 0 ]; then echo "##vso[task.logissue type=error;]Nexus Publisher Pod failed with exit code: $EXIT_CODE"; exit 1; fi
+        
+        if [ "$EXIT_CODE" -ne 0 ]; then 
+          echo "##vso[task.logissue type=error;]Nexus Publisher Pod (publisher container) failed with exit code: $EXIT_CODE"
+          exit 1 
+        else
+          echo "Nexus Publisher Pod (publisher container) completed successfully."
+        fi
     condition: and(succeeded(), in(variables['serviceName'], 'user_service', 'ticket_service'), eq(variables['sonar_status'], 'OK'))
 
   - task: Kubernetes@1
