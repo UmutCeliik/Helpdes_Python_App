@@ -43,9 +43,11 @@ spec:
     - name: NEXUS_PASSWORD
       value: __NEXUS_PASSWORD__
     - name: NEXUS_URL
-      value: "http://nexus-repository-manager.nexus:8081" # Nexus iç servis URL'i
-    - name: SERVICE_NAME # Üretilen SBOM'un dosya adı için
+      value: "http://nexus-repository-manager.nexus:8081"
+    - name: SERVICE_NAME
       value: __SERVICE_NAME__
+    - name: CONTEXT_SUB_PATH_RELATIVE
+      value: __CONTEXT_SUB_PATH_RELATIVE__
     volumeMounts:
     - name: work-volume
       mountPath: /workspace # Init Container'dan klonlanan kodun okunacağı yer
@@ -54,27 +56,37 @@ spec:
     - "-c"
     - |
       set -e
-      cd /workspace/src/ # Doğru dizine git
+      # Hata ayıklama komutları aynı kalacak
+      # ... (önceki hata ayıklama komutları) ...
+      
+      # --- YENİ EKLENEN SBOM HATA AYIKLAMA KOMUTLARI ---
+      echo "--- SBOM Generator Hata Ayıklama Bilgisi ---"
+      echo "Mevcut PATH: $PATH"
+      echo "Python site-packages dizini içeriği:"
+      ls -l /usr/local/lib/python3.11/site-packages/cyclonedx_bom || echo "cyclonedx_bom paket dizini bulunamadı."
+      echo " cyclonedx-bom komutunun nerede olduğunu ara:"
+      which cyclonedx-bom || echo "cyclonedx-bom PATH içinde bulunamadı."
+      find /usr/local/bin /usr/bin -name "cyclonedx-bom" || echo "cyclonedx-bom standart bin dizinlerinde bulunamadı."
+      echo "----------------------------------------------"
+      # --- SBOM Hata Ayıklama Komutları Sonu ---
+
+      cd "/workspace/src/$CONTEXT_SUB_PATH_RELATIVE/" # Doğru dizine git
 
       echo "Generating SBOM for $SERVICE_NAME..."
-      # Proje tipine göre SBOM aracı seçimi (pipeline'daki mantığı buraya taşıyoruz)
+      
       if [[ "$SERVICE_NAME" == "user_service" || "$SERVICE_NAME" == "ticket_service" ]]; then
-        pip install cyclonedx-bom # Dockerfile'da zaten kuruldu, bu satır aslında gereksiz.
-                                 # Ama kalmasında sakınca yok, "Requirement already satisfied" diyecek.
+        # pip install cyclonedx-bom # Bu satırı kaldırın, Dockerfile'da yüklü
         cyclonedx-bom -o sbom.json
       elif [[ "$SERVICE_NAME" == "frontend" ]]; then
-        # Eğer frontend için npm tabanlı SBOM üretecekseniz bu satırı kullanın
-        # npm install -g @cyclonedx/cyclonedx-npm # Dockerfile'da zaten kuruldu
-        # cyclonedx-npm -o sbom.json
         echo "Skipping SBOM for frontend in this example, adjust if needed."
-        exit 0 # Frontend SBOM yoksa başarılı çıkış
+        exit 0
       fi
 
-      SBOM_FILE="sbom-$(date +%s)-$SERVICE_NAME.json" # Benzersiz bir dosya adı
+      SBOM_FILE="sbom-$(date +%s)-$SERVICE_NAME.json"
       mv sbom.json "$SBOM_FILE"
 
       echo "Uploading SBOM to Nexus Raw repository..."
-      curl -v -u "$NEXUS_USERNAME:$NUS_PASSWORD" \
+      curl -v -u "$NEXUS_USERNAME:$NEXUS_PASSWORD" \
            --upload-file "$SBOM_FILE" \
            "$NEXUS_URL/repository/sbom-reports/$SBOM_FILE"
       echo "SBOM uploaded to Nexus."
