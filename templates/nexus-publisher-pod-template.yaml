@@ -9,15 +9,16 @@ spec:
   restartPolicy: Never
   serviceAccountName: ado-agent-sa
   
-  hostAliases:
-  - ip: "10.77.3.203" # Bu IP'nin Nexus'unuza erişebildiğinden emin olun
-    hostnames:
-    - "sonarqube.cloudpro.com.tr"
-    - "harbor.cloudpro.com.tr"
-    - "vault.cloudpro.com.tr"
-    - "keycloak.cloudpro.com.tr"
-    - "argo.cloudpro.com.tr"
-    - "nexus.cloudpro.com.tr"
+  # hostAliases bloğunu tamamen kaldırın, artık ihtiyacımız yok
+  # hostAliases:
+  # - ip: "10.77.3.203"
+  #   hostnames:
+  #   - "sonarqube.cloudpro.com.tr"
+  #   - "harbor.cloudpro.com.tr"
+  #   - "vault.cloudpro.com.tr"
+  #   - "keycloak.cloudpro.com.tr"
+  #   - "argo.cloudpro.com.tr"
+  #   - "nexus.cloudpro.com.tr"
 
   initContainers:
   - name: git-cloner
@@ -54,11 +55,9 @@ spec:
     - name: NEXUS_PASSWORD
       value: __NEXUS_PASSWORD__
     - name: NEXUS_URL
-      value: __NEXUS_URL__
+      value: "http://nexus-repository-manager.nexus:8081" # Düzeltildi!
     - name: SERVICE_NAME
       value: __SERVICE_NAME__
-    - name: TWINE_VERIFY_SSL # YENİ: SSL doğrulamayı devre dışı bırak
-      value: "false"
     volumeMounts:
     - name: work-volume
       mountPath: /workspace
@@ -74,7 +73,7 @@ spec:
       python setup.py sdist bdist_wheel
       
       echo "Publishing Python artifacts to Nexus hosted repository..."
-      # TWINE_VERIFY_SSL=false ortam değişkeni otomatik olarak dikkate alınacak
+      # Artık TWINE_VERIFY_SSL=false'a gerek yok, çünkü HTTP kullanıyoruz
       TWINE_USERNAME=$NEXUS_USERNAME TWINE_PASSWORD=$NEXUS_PASSWORD twine upload \
                                --repository-url $NEXUS_URL/repository/helpdesk-python-hosted/ \
                                dist/*
