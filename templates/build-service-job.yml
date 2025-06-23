@@ -194,7 +194,7 @@ jobs:
         
         # 3. Gerekli tüm placeholder'ları dinamik değerlerle değiştir
         GIT_REPO_URL_WITH_TOKEN=$(echo "$(gitRepoUrl)" | sed "s,https://,https://$(System.AccessToken)@,")
-        PYPI_GROUP_URL_WITH_CREDS=$(echo "$(NEXUS_INTERNAL_URL)/repository/helpdesk-pypi-all/simple/" | sed "s,http://,http://$(NEXUS_USER):$(NEXUS_PASS)@,")
+        PYPI_GROUP_URL_WITH_CREDS=$(echo "$(NEXUS_INTERNAL_URL)/repository/helpdesk-pypi-all/simple/" | sed "s,http://,http://$(NexusUsername):$(NexusPassword)@,")
 
         # 'sed' komutları artık bu scriptin ortamına aktarılmış değişkenleri güvenle kullanabilir.
         sed -i "s|__POD_NAME__|$nexusPublisherPodName|g" "$finalManifestFile"
@@ -206,8 +206,6 @@ jobs:
         sed -i "s|__TARGET_REPO_URL__|$TARGET_REPO_URL|g" "$finalManifestFile"
         sed -i "s|__PYPI_GROUP_URL__|$PYPI_GROUP_URL_WITH_CREDS|g" "$finalManifestFile"
         sed -i "s|__NEXUS_HOST__|$(NEXUS_HOST)|g" "$finalManifestFile"
-
-        # sed -i "s|__AZP_TOKEN__|$AZP_TOKEN_FROM_PIPELINE|g" "$(kanikoFinalFile)-sonar-$(serviceName)"
 
         echo "--- Generated Nexus Publisher Pod Manifest ---"
         cat "$finalManifestFile"
