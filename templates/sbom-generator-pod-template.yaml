@@ -1,0 +1,83 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: __POD_NAME__
+  namespace: ado-agents # Agent'ınızın çalıştığı namespace
+  labels:
+    app: sbom-generator
+spec:
+  restartPolicy: Never # İş bitince pod'un yeniden başlamamasını sağlar
+  serviceAccountName: ado-agent-sa # Kube API erişimi için önceki adımda oluşturulan SA
+  initContainers:
+  - name: git-cloner
+    image: alpine/git:latest # Git klonlamak için
+    command: ["/bin/sh", "-c"]
+    args:
+    - |
+      set -e
+      GIT_REPO_URL_WITH_TOKEN=$(echo $GIT_REPO_URL | sed "s,https://,https://$AZP_TOKEN@,")
+      echo "Cloning repository from $GIT_REPO_URL into /workspace/src..."
+      git clone "$GIT_REPO_URL_WITH_TOKEN" /workspace/src/
+      if [ -n "$CONTEXT_SUB_PATH_RELATIVE" ]; then
+        echo "Changing directory to relative path: $CONTEXT_SUB_PATH_RELATIVE"
+        mv /workspace/src/$CONTEXT_SUB_PATH_RELATIVE/* /workspace/src/ || true
+      fi
+      echo "Source code cloned successfully."
+    env:
+    - name: GIT_REPO_URL
+      value: __GIT_REPO_URL__
+    - name: AZP_TOKEN
+      value: __AZP_TOKEN__
+    - name: CONTEXT_SUB_PATH_RELATIVE
+      value: __CONTEXT_SUB_PATH_RELATIVE__
+    volumeMounts:
+    - name: work-volume
+      mountPath: /workspace # Kaynak kodun klonlanacağı paylaşılan dizin
+
+  containers:
+  - name: generator
+    image: umut98/sbom-generator:latest # Kendi özel imajınız buraya gelecek
+    env:
+    - name: NEXUS_USERNAME
+      value: __NEXUS_USERNAME__
+    - name: NEXUS_PASSWORD
+      value: __NEXUS_PASSWORD__
+    - name: NEXUS_URL
+      value: "http://nexus-repository-manager.nexus:8081" # Nexus iç servis URL'i
+    - name: SERVICE_NAME # Üretilen SBOM'un dosya adı için
+      value: __SERVICE_NAME__
+    volumeMounts:
+    - name: work-volume
+      mountPath: /workspace # Init Container'dan klonlanan kodun okunacağı yer
+    command: ["/bin/bash"]
+    args:
+    - "-c"
+    - |
+      set -e
+      cd /workspace/src/ # Doğru dizine git
+
+      echo "Generating SBOM for $SERVICE_NAME..."
+      # Proje tipine göre SBOM aracı seçimi (pipeline'daki mantığı buraya taşıyoruz)
+      if [[ "$SERVICE_NAME" == "user_service" || "$SERVICE_NAME" == "ticket_service" ]]; then
+        pip install cyclonedx-bom # Dockerfile'da zaten kuruldu, bu satır aslında gereksiz.
+                                 # Ama kalmasında sakınca yok, "Requirement already satisfied" diyecek.
+        cyclonedx-bom -o sbom.json
+      elif [[ "$SERVICE_NAME" == "frontend" ]]; then
+        # Eğer frontend için npm tabanlı SBOM üretecekseniz bu satırı kullanın
+        # npm install -g @cyclonedx/cyclonedx-npm # Dockerfile'da zaten kuruldu
+        # cyclonedx-npm -o sbom.json
+        echo "Skipping SBOM for frontend in this example, adjust if needed."
+        exit 0 # Frontend SBOM yoksa başarılı çıkış
+      fi
+
+      SBOM_FILE="sbom-$(date +%s)-$SERVICE_NAME.json" # Benzersiz bir dosya adı
+      mv sbom.json "$SBOM_FILE"
+
+      echo "Uploading SBOM to Nexus Raw repository..."
+      curl -v -u "$NEXUS_USERNAME:$NUS_PASSWORD" \
+           --upload-file "$SBOM_FILE" \
+           "$NEXUS_URL/repository/sbom-reports/$SBOM_FILE"
+      echo "SBOM uploaded to Nexus."
+  volumes:
+  - name: work-volume
+    emptyDir: {}

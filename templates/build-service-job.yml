@@ -239,7 +239,7 @@ jobs:
   # Python servisleri için yayınlama (Ticket Service) - ARTIK POD İÇİNDE YAPILACAK
   - task: Bash@3
     name: PrepareNexusPublisherManifest
-    displayName: '4a.1. Prepare Nexus Publisher Pod Manifest (Ticket Service)'
+    displayName: '4b. Prepare Nexus Publisher Pod Manifest (Ticket Service)'
     inputs:
       targetType: 'inline'
       script: |
@@ -268,7 +268,7 @@ jobs:
 
 
   - task: Kubernetes@1
-    displayName: '4a.2. Apply & Run Nexus Publisher Pod (Ticket Service)'
+    displayName: '4c. Apply & Run Nexus Publisher Pod (Ticket Service)'
     inputs:
       connectionType: 'None'
       namespace: '$(k8sNamespace)'
@@ -278,7 +278,7 @@ jobs:
 
   - task: Bash@3
     name: WaitAndGetNexusPublisherLogs
-    displayName: '4a.3. Wait for Nexus Publisher Pod to Complete & Get Logs (Ticket Service)'
+    displayName: '4d. Wait for Nexus Publisher Pod to Complete & Get Logs (Ticket Service)'
     inputs:
       targetType: 'inline'
       script: |
@@ -299,7 +299,7 @@ jobs:
 
 
   - task: Kubernetes@1
-    displayName: '4a.4. Cleanup Nexus Publisher Pod (Ticket Service)'
+    displayName: '4e. Cleanup Nexus Publisher Pod (Ticket Service)'
     condition: always()
     inputs:
       connectionType: 'None'
@@ -309,33 +309,63 @@ jobs:
 
   # BÖLÜM 5: SBOM Üretimi ve Nexus'a Yükleme (Örnek)
   - task: Bash@3
-    displayName: '5. Generate and Upload SBOM to Nexus'
+    name: PrepareSbomGeneratorManifest
+    displayName: '5a. Prepare SBOM Generator Pod Manifest'
     inputs:
       targetType: 'inline'
       script: |
         set -e
-        # DEĞİŞİKLİK: Hedef dizine script içinde geçiliyor.
-        cd $(Build.SourcesDirectory)/${{ parameters.serviceName }}
+        echo "Preparing SBOM Generator manifest for service: ${{ parameters.serviceName }}..."
+        
+        safePodSuffix=$(echo "${{ parameters.serviceName }}" | sed 's/_/-/g')
+        sbomPodName="sbom-$(imageTag)-$safePodSuffix" # Nexus pod gibi benzersiz isim
+        echo "##vso[task.setvariable variable=sbomPodName]$sbomPodName"
+        
+        cp templates/sbom-generator-pod-template.yaml "$(kanikoFinalFile)-sbom-${{ parameters.serviceName }}"
+        sed -i "s|__POD_NAME__|$sbomPodName|g" "$(kanikoFinalFile)-sbom-${{ parameters.serviceName }}"
+        sed -i "s|__GIT_REPO_URL__|$(gitRepoUrl)|g" "$(kanikoFinalFile)-sbom-${{ parameters.serviceName }}"
+        sed -i "s|__AZP_TOKEN__|$(System.AccessToken)|g" "$(kanikoFinalFile)-sbom-${{ parameters.serviceName }}"
+        sed -i "s|__CONTEXT_SUB_PATH_RELATIVE__|${{ parameters.serviceName }}|g" "$(kanikoFinalFile)-sbom-${{ parameters.serviceName }}"
+        sed -i "s|__NEXUS_USERNAME__|$NEXUS_USERNAME|g" "$(kanikoFinalFile)-sbom-${{ parameters.serviceName }}"
+        sed -i "s|__NEXUS_PASSWORD__|$NEXUS_PASSWORD|g" "$(kanikoFinalFile)-sbom-${{ parameters.serviceName }}"
+        sed -i "s|__SERVICE_NAME__|${{ parameters.serviceName }}|g" "$(kanikoFinalFile)-sbom-${{ parameters.serviceName }}"
+    condition: succeeded() # Koşul aynı kalır
 
-        echo "Generating SBOM for ${{ parameters.serviceName }}..."
-        if [[ "${{ parameters.serviceName }}" == "user_service" || "${{ parameters.serviceName }}" == "ticket_service" ]]; then
-          pip install cyclonedx-bom
-          cyclonedx-bom -o sbom.json
-        elif [[ "${{ parameters.serviceName }}" == "frontend" ]]; then
-          npm install -g @cyclonedx/cyclonedx-npm
-          cyclonedx-npm -o sbom.json
-        fi
-
-        SBOM_FILE="sbom-$(Build.BuildId)-${{ parameters.serviceName }}.json"
-        mv sbom.json "$SBOM_FILE"
-
-        echo "Uploading SBOM to Nexus Raw repository..."
-        curl -v --insecure -u $(NEXUS_USERNAME):$(NEXUS_PASSWORD) \
-             --upload-file "$SBOM_FILE" \
-             $(NEXUS_URL)/repository/sbom-reports/$SBOM_FILE
-        echo "SBOM uploaded to Nexus."
-    # workingDirectory: Bu satır kaldırıldı çünkü cd komutu script içinde kullanılıyor.
+  - task: Kubernetes@1
+    displayName: '5b. Apply & Run SBOM Generator Pod'
+    inputs:
+      connectionType: 'None'
+      namespace: '$(k8sNamespace)'
+      command: 'apply'
+      arguments: '-f $(kanikoFinalFile)-sbom-${{ parameters.serviceName }}'
     condition: succeeded()
+
+  - task: Bash@3
+    name: WaitAndGetSbomLogs
+    displayName: '5c. Wait for SBOM Generator Pod to Complete & Get Logs'
+    inputs:
+      targetType: 'inline'
+      script: |
+        set -x
+        echo "Waiting for pod $(sbomPodName) to complete..."; 
+        kubectl wait --for=condition=Completed pod/$(sbomPodName) --timeout=10m -n $(k8sNamespace);
+        kubectl logs $(sbomPodName) -n $(k8sNamespace) --follow
+        EXIT_CODE=$(kubectl get pod $(sbomPodName) -n $(k8sNamespace) -o jsonpath='{.status.containerStatuses[?(@.name=="generator")].state.terminated.exitCode}')
+        echo "SBOM Generator Pod exited with code: $EXIT_CODE"
+        if [ "$EXIT_CODE" -ne 0 ]; then
+            echo "##vso[task.logissue type=error;]SBOM Generator Pod exited with non-zero code: $EXIT_CODE"
+            exit 1
+        fi
+    condition: succeeded()
+
+  - task: Kubernetes@1
+    displayName: '5d. Cleanup SBOM Generator Pod'
+    inputs:
+      connectionType: 'None'
+      namespace: '$(k8sNamespace)'
+      command: 'delete'
+      arguments: 'pod/$(sbomPodName) --ignore-not-found=true'
+    condition: always() # Her zaman çalışsın
 
   # - task: Bash@3
   #   displayName: 'Update Redmine Issue'
