@@ -1,34 +1,31 @@
 # ticket_service/setup.py
-import os # 'os' modülünü import ediyoruz, dosya yollarını yönetmek için
+import os
 from setuptools import setup, find_packages
 
-# long_description'ı varsayılan olarak boş bir string olarak başlatın
-long_description = ""
-long_description_content_type = "text/markdown" # Varsayılan olarak markdown içeriği
 
-# setup.py dosyasının bulunduğu dizini alın
+long_description = ""
+long_description_content_type = "text/markdown"
+
+
 this_directory = os.path.abspath(os.path.dirname(__file__))
-# README.md dosyasının tam yolunu oluşturun
+
 readme_path = os.path.join(this_directory, 'README.md')
 
-# README.md dosyasını okumaya çalışın
-# Eğer dosya yoksa, FileNotFoundError hatası yakalanacak ve long_description boş kalacak
 try:
     with open(readme_path, encoding='utf-8') as f:
         long_description = f.read()
 except FileNotFoundError:
-    # Dosya bulunamadığında bir uyarı mesajı yazdırın
+
     print(f"WARNING: README.md not found at {readme_path}. Using empty long_description.")
-    # long_description varsayılan olarak boş kalacaktır
-    pass # Hata durumunda script'in durmamasını sağlar
+
+    pass
 
 setup(
     name='helpdesk-ticket-service',
-    version='0.1.0', # Bu versiyonu pipeline'daki Build.BuildId ile dinamik hale getirebiliriz
+    version='0.1.0',
     packages=find_packages(),
     include_package_data=True,
     install_requires=[
-        # requirements.txt dosyasındaki bağımlılıkları buraya kopyala
         'fastapi==0.111.0',
         'uvicorn[standard]==0.29.0',
         'SQLAlchemy==2.0.30',
@@ -44,18 +41,18 @@ setup(
     ],
     entry_points={
         'console_scripts': [
-            'ticket_service_app=ticket_service.main:app', # Uygulamanın ana giriş noktası
+            'ticket_service_app=ticket_service.main:app',
         ],
     },
     author='Umut Celik',
     author_email='umut.celik@cloudpro.com.tr',
     description='Helpdesk Ticket Management Service',
-    long_description=long_description, # Güncellenen long_description değişkenini kullanın
-    long_description_content_type=long_description_content_type, # İçerik tipini de kullanın
-    url='https://dev.azure.com/umutcelik0234/HelpDesk_App/_git/helpdesk-app-src', # Proje URL'i
+    long_description=long_description,
+    long_description_content_type=long_description_content_type,
+    url='https://dev.azure.com/umutcelik0234/HelpDesk_App/_git/helpdesk-app-src',
     classifiers=[
         'Programming Language :: Python :: 3',
-        'License :: OSI Approved :: MIT License', # Lisansını buraya ekle
+        'License :: OSI Approved :: MIT License',
         'Operating System :: OS Independent',
     ],
     python_requires='>=3.11',

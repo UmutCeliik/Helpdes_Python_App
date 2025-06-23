@@ -1,5 +1,5 @@
-# templates/nexus-publisher-pod-template.yaml (GÜNCELLENMİŞ - Daha Sağlam)
-# Bu şablon, bir Python paketini derler (wheel/sdist) ve hedeflenen Nexus deposuna (snapshot veya release) yayınlar.
+# templates/nexus-publisher-pod-template.yaml (GÜNCELLENMİŞ - Final Düzeltme)
+# Bu şablon, gizli değişkenlerin doğrudan pipeline tarafından doldurulmasına izin verecek şekilde güncellenmiştir.
 apiVersion: v1
 kind: Pod
 metadata:
@@ -12,15 +12,13 @@ spec:
   serviceAccountName: ado-agent-sa
   
   initContainers:
-  # 1. Init Container: Git deposunu klonlar (Basitleştirilmiş)
   - name: git-cloner
     image: alpine/git:latest
     command: ["/bin/sh", "-c"]
     args:
     - |
-      set -ex # Hata durumunda çık ve komutları logla
+      set -ex
       echo "Cloning repository..."
-      # Doğrudan, pipeline tarafından hazırlanan ortam değişkenini kullanıyoruz.
       git clone "$GIT_REPO_URL_WITH_TOKEN" /workspace/source
       echo "Source code cloned successfully."
     env:
@@ -31,15 +29,16 @@ spec:
     - name: work-volume
       mountPath: /workspace
 
-  # 2. Ana Container: Paketi derler ve yayınlar (Değişiklik yok)
   containers:
   - name: publisher
     image: umut98/nexus-publisher:latest
     env:
+    # --- DEĞİŞİKLİK: 'value' alanları pipeline tarafından doldurulmak üzere boş bırakıldı ---
     - name: NEXUS_USERNAME
-      value: __NEXUS_USERNAME__
+      value: "__NEXUS_USERNAME__" # Bu satır build-service-job.yml'de güncellenecek
     - name: NEXUS_PASSWORD
-      value: __NEXUS_PASSWORD__
+      value: "__NEXUS_PASSWORD__" # Bu satır build-service-job.yml'de güncellenecek
+    # -------------------------------------------------------------------------------------
     - name: CONTEXT_SUB_PATH_RELATIVE
       value: __CONTEXT_SUB_PATH_RELATIVE__
     - name: PACKAGE_VERSION
@@ -60,13 +59,16 @@ spec:
       cd "/workspace/source/$CONTEXT_SUB_PATH_RELATIVE/"
       echo "--- Current Directory: $(pwd) ---"
       echo "Updating version in setup.py to '$PACKAGE_VERSION'"
+      # Not: setup.py dosyasındaki sözdizimi hatasını düzelttiğinizden emin olun!
+      # Doğru format: version='0.1.0', # Yorum
       sed -i "s/version=['\"].*['\"]/version='$PACKAGE_VERSION'/" setup.py
       echo "--- Installing build tools ---"
       pip install --no-cache-dir --index-url "$PYPI_GROUP_URL" --trusted-host "$NEXUS_HOST" wheel twine
       echo "--- Building the package ---"
       python setup.py sdist bdist_wheel
       echo "--- Publishing to Nexus ---"
-      TWINE_USERNAME="$NEXUS_USERNAME" TWINE_PASSWORD="$NEXUS_PASSWORD" twine upload --repository-url "$TARGET_REPO_URL" dist/*
+      # Twine, kimlik bilgilerini ortam değişkenlerinden (TWINE_USERNAME, TWINE_PASSWORD) otomatik olarak okur.
+      twine upload --repository-url "$TARGET_REPO_URL" dist/*
       echo "Artifacts published successfully."
   volumes:
   - name: work-volume
