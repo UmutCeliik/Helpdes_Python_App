@@ -105,7 +105,7 @@ jobs:
       script: |
         set -x
         echo "Waiting for pod $(sonarPodName) to finish...";
-        kubectl wait --for=condition=Ready pod/$(sonarPodName) --timeout=5m -n $(k8sNamespace);
+        kubectl wait --for=condition=Ready pod/$(sonarPodName) --timeout=3m -n $(k8sNamespace);
         kubectl logs $(sonarPodName) -n $(k8sNamespace) -c sonarqube-scanner --follow
         
         # Quality Gate kontrolü
@@ -226,7 +226,7 @@ jobs:
       script: |
         set -ex
         echo "Waiting for pod $(nexusPublisherPodName) to complete..."; 
-        kubectl wait --for=condition=Completed pod/$(nexusPublisherPodName) --timeout=5m -n $(k8sNamespace);
+        kubectl wait --for=condition=Completed pod/$(nexusPublisherPodName) --timeout=2m -n $(k8sNamespace);
         kubectl logs $(nexusPublisherPodName) -n $(k8sNamespace) --all-containers --follow
         EXIT_CODE=$(kubectl get pod $(nexusPublisherPodName) -n $(k8sNamespace) -o jsonpath='{.status.containerStatuses[?(@.name=="publisher")].state.terminated.exitCode}')
         echo "Nexus Publisher Pod exited with code: $EXIT_CODE"
@@ -282,7 +282,7 @@ jobs:
       script: |
         set -ex
         echo "Waiting for pod $(sbomPodName) to complete..."; 
-        kubectl wait --for=condition=Completed pod/$(sbomPodName) --timeout=3m -n $(k8sNamespace);
+        kubectl wait --for=condition=Completed pod/$(sbomPodName) --timeout=2m -n $(k8sNamespace);
         kubectl logs $(sbomPodName) -n $(k8sNamespace) --all-containers --follow
         EXIT_CODE=$(kubectl get pod $(sbomPodName) -n $(k8sNamespace) -o jsonpath='{.status.containerStatuses[?(@.name=="generator")].state.terminated.exitCode}')
         echo "SBOM Generator Pod exited with code: $EXIT_CODE"
