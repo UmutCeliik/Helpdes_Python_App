@@ -68,7 +68,7 @@ spec:
     - name: SERVICE_NAME
       value: __SERVICE_NAME__
     - name: BUILD_ID 
-      value: __BUILD_ID__
+      value: "__BUILD_ID__"
     volumeMounts:
     - name: work-volume
       mountPath: /workspace
@@ -77,28 +77,17 @@ spec:
     - "-c"
     - |
       set -e
-      # CONTEXT_SUB_PATH_RELATIVE boş değilse, klasöre geç
-      # Eğer git clone doğrudan /workspace/src'ye projenin kökünü kopyalıyorsa,
-      # bu cd komutunu tamamen kaldırın, zaten doğru yerde olacaksınız.
-      # Aksi takdirde, eğer repo kökünde birden fazla servis varsa,
-      # 'ticket_service' gibi alt dizinlere geçmek için bu gereklidir.
-      # Loglara göre `cd /workspace/src/` doğru görünüyor.
       cd /workspace/src/ 
 
       echo "Building Python distribution for $SERVICE_NAME..."
 
       if [ -n "$BUILD_ID" ]; then
         echo "Using dynamic version: 0.1.0.$BUILD_ID"
-        # setup.py dosyasındaki 'version=' satırını bul ve dinamik versiyonla değiştir
-        # Sed komutunda dikkatli olalım, girinti hassasiyeti ve özel karakterler için.
-        # Sed'in ayıraç karakteri olarak '/' yerine başka bir karakter (örn: '#') kullanılabilir.
         sed -i "s#^    version='.*',#    version='0.1.0.$BUILD_ID',#" setup.py
       else
         echo "WARNING: BUILD_ID not found. Using static version from setup.py."
       fi
-
-      # NEXUS_URL'den sadece hostname'i almak için (pip --trusted-host için)
-      # Nexus URL'ini ortam değişkeninden alıp hostname'i çıkarıyoruz
+      
       NEXUS_HOST_ONLY=$(echo "$NEXUS_URL" | sed -E 's|https?://([^/:]+).*|\1|')
 
       # Pip'i Nexus'u kullanacak şekilde yapılandırıyoruz
