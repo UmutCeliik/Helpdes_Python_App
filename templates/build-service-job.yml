@@ -162,9 +162,6 @@ jobs:
     condition: and(succeeded(), in(variables['serviceName'], 'user_service', 'ticket_service'), eq(variables['sonar_status'], 'OK'))
     # --- DEĞİŞİKLİK: SonarQube adımıyla aynı mantık kullanılıyor ---
     env:
-      # Değişken grubundaki gizli değişkenleri bu scriptin ortamına aktar.
-      NEXUS_USER: $(NexusUsername)
-      NEXUS_PASS: $(NexusPassword)
       AZP_TOKEN: $(System.AccessToken)
     inputs:
       targetType: 'inline'
@@ -202,12 +199,15 @@ jobs:
         sed -i "s|__POD_NAME__|$nexusPublisherPodName|g" "$finalManifestFile"
         sed -i "s|__GIT_REPO_URL_WITH_TOKEN__|$GIT_REPO_URL_WITH_TOKEN|g" "$finalManifestFile"
         sed -i "s|__CONTEXT_SUB_PATH_RELATIVE__|${{ parameters.serviceName }}|g" "$finalManifestFile"
-        sed -i "s|__NEXUS_USERNAME__|$(NEXUS_USER)|g" "$finalManifestFile"
-        sed -i "s|__NEXUS_PASSWORD__|$(NEXUS_PASS)|g" "$finalManifestFile"
+        sed -i "s|__NEXUS_USERNAME__|$(NexusUsername)|g" "$finalManifestFile"
+        sed -i "s|__NEXUS_PASSWORD__|$(NexusPassword)|g" "$finalManifestFile"
         sed -i "s|__PACKAGE_VERSION__|$PACKAGE_VERSION|g" "$finalManifestFile"
         sed -i "s|__TARGET_REPO_URL__|$TARGET_REPO_URL|g" "$finalManifestFile"
         sed -i "s|__PYPI_GROUP_URL__|$PYPI_GROUP_URL_WITH_CREDS|g" "$finalManifestFile"
         sed -i "s|__NEXUS_HOST__|$(NEXUS_HOST)|g" "$finalManifestFile"
+
+        # sed -i "s|__SONAR_URL__|$(SONAR_URL)|g" "$(kanikoFinalFile)-sonar-$(serviceName)"
+        # sed -i "s|__SONAR_TOKEN__|$(SONAR_TOKEN)|g" "$(kanikoFinalFile)-sonar-$(serviceName)"
 
         echo "--- Generated Nexus Publisher Pod Manifest ---"
         cat "$finalManifestFile"
@@ -227,7 +227,7 @@ jobs:
       targetType: 'inline'
       script: |
         set -ex
-        kubectl wait --for=condition=Completed pod/$(nexusPublisherPodName) --timeout=5m -n $(k8sNamespace)
+        kubectl wait --for=condition=Completed pod/$(nexusPublisherPodName) --timeout=3m -n $(k8sNamespace)
         kubectl logs $(nexusPublisherPodName) -n $(k8sNamespace) --all-containers --follow
         EXIT_CODE=$(kubectl get pod $(nexusPublisherPodName) -n $(k8sNamespace) -o jsonpath='{.status.containerStatuses[?(@.name=="publisher")].state.terminated.exitCode}')
         if [ "$EXIT_CODE" -ne 0 ]; then echo "##vso[task.logissue type=error;]Nexus Publisher Pod failed with exit code: $EXIT_CODE"; exit 1; fi

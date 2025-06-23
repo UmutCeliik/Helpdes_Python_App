@@ -35,9 +35,9 @@ spec:
     env:
     # --- DEĞİŞİKLİK: 'value' alanları pipeline tarafından doldurulmak üzere boş bırakıldı ---
     - name: NEXUS_USERNAME
-      value: "NEXUS_USER" # Bu satır build-service-job.yml'de güncellenecek
+      value: __NEXUS_USERNAME__ # Bu satır build-service-job.yml'de güncellenecek
     - name: NEXUS_PASSWORD
-      value: "NEXUS_PASS" # Bu satır build-service-job.yml'de güncellenecek
+      value: __NEXUS_PASSWORD__ # Bu satır build-service-job.yml'de güncellenecek
     # -------------------------------------------------------------------------------------
     - name: CONTEXT_SUB_PATH_RELATIVE
       value: __CONTEXT_SUB_PATH_RELATIVE__
