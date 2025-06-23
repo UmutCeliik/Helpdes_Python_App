@@ -277,7 +277,7 @@ jobs:
       script: |
         set -x # Debug modunu aç
         echo "Waiting for pod $(nexusPublisherPodName) to complete..."; 
-        kubectl wait --for=condition=Completed pod/$(nexusPublisherPodName) --timeout=10m -n $(k8sNamespace); # Timeout 10 dakikaya çıkarıldı
+        kubectl wait --for=condition=Completed pod/$(nexusPublisherPodName) --timeout=3m -n $(k8sNamespace);
         kubectl logs $(nexusPublisherPodName) -n $(k8sNamespace) --follow
         EXIT_CODE=$(kubectl get pod $(nexusPublisherPodName) -n $(k8sNamespace) -o jsonpath='{.status.containerStatuses[?(@.name=="publisher")].state.terminated.exitCode}')
         echo "Nexus Publisher Pod exited with code: $EXIT_CODE"

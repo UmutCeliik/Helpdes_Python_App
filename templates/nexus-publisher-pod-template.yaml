@@ -48,6 +48,10 @@ spec:
       value: __SERVICE_NAME__
     - name: BUILD_ID 
       value: "__BUILD_ID__"
+    # CONTEXT_SUB_PATH_RELATIVE zaten Init Container'a aktarılıyor,
+    # burada da ortam değişkeni olarak tutmak mantıklı.
+    - name: CONTEXT_SUB_PATH_RELATIVE
+      value: __CONTEXT_SUB_PATH_RELATIVE__
     volumeMounts:
     - name: work-volume
       mountPath: /workspace
@@ -57,34 +61,18 @@ spec:
     - |
       set -e
       
-      # --- YENİ EKLENEN HATA AYIKLAMA KOMUTLARI ---
-      echo "--- Hata Ayıklama Bilgisi ---"
+      # --- YENİLENEN HATA AYIKLAMA KOMUTLARI ---
+      echo "--- Hata Ayıklama Bilgisi (YENİ) ---"
       echo "cd komutu öncesi mevcut dizin: $(pwd)"
       echo "Init Container tarafından klonlanan /workspace/src/ içeriği:"
       ls -l /workspace/src/
-      
-      if [ -n "$CONTEXT_SUB_PATH_RELATIVE" ]; then
-        TARGET_CD_PATH="/workspace/src/$CONTEXT_SUB_PATH_RELATIVE/"
-      else
-        TARGET_CD_PATH="/workspace/src/"
-      fi
-      
-      echo "Hedeflenecek dizin: $TARGET_CD_PATH"
-      if [ -d "$TARGET_CD_PATH" ]; then
-          echo "$TARGET_CD_PATH dizin içeriği:"
-          ls -l "$TARGET_CD_PATH"
-      else
-          echo "$TARGET_CD_PATH dizini mevcut değil."
-      fi
+      echo "CONTEXT_SUB_PATH_RELATIVE ortam değişkeni değeri: '${CONTEXT_SUB_PATH_RELATIVE}'" # Değişkenin değerini doğrudan yazdır
       echo "-----------------------------"
       # --- Hata Ayıklama Komutları Sonu ---
 
-      # Kaynak kod dizinine geç
-      if [ -n "$CONTEXT_SUB_PATH_RELATIVE" ]; then
-        cd "/workspace/src/$CONTEXT_SUB_PATH_RELATIVE/"
-      else
-        cd "/workspace/src/"
-      fi
+      # Kaynak kod dizinine geç - ARTIK SADECE BU YOLA GEÇİYORUZ
+      # CONTEXT_SUB_PATH_RELATIVE değişkeninin değerinin "ticket_service" olmasını bekliyoruz.
+      cd "/workspace/src/$CONTEXT_SUB_PATH_RELATIVE/" # DÜZELTİLDİ: if/else'i kaldırıp direkt cd yapıyoruz.
 
       echo "cd komutu sonrası mevcut dizin: $(pwd)"
       echo "Mevcut dizin içeriği:"
