@@ -57,15 +57,15 @@ spec:
       cd "/workspace/source/$CONTEXT_SUB_PATH_RELATIVE/"
       echo "--- Current Directory: $(pwd) ---"
       echo "Updating version in setup.py to '$PACKAGE_VERSION'"
-      # Not: setup.py dosyasındaki sözdizimi hatasını düzelttiğinizden emin olun!
-      # Doğru format: version='0.1.0', # Yorum
       sed -i "s/version=['\"].*['\"]/version='$PACKAGE_VERSION'/" setup.py
       echo "--- Installing build tools ---"
       pip install --no-cache-dir --index-url "$PYPI_GROUP_URL" --trusted-host "$NEXUS_HOST" wheel twine
       echo "--- Building the package ---"
       python setup.py sdist bdist_wheel
       echo "--- Publishing to Nexus ---"
-      # Twine, kimlik bilgilerini ortam değişkenlerinden (TWINE_USERNAME, TWINE_PASSWORD) otomatik olarak okur.
+      # Twine'ın kullanacağı ortam değişkenlerini ayarla
+      export TWINE_USERNAME="$NEXUS_USERNAME"
+      export TWINE_PASSWORD="$NEXUS_PASSWORD"
       twine upload --repository-url "$TARGET_REPO_URL" dist/*
       echo "Artifacts published successfully."
   volumes:
