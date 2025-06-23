@@ -8,18 +8,6 @@ metadata:
 spec:
   restartPolicy: Never
   serviceAccountName: ado-agent-sa
-  
-  # hostAliases bloğunu tamamen kaldırın, artık ihtiyacımız yok
-  # hostAliases:
-  # - ip: "10.77.3.203"
-  #   hostnames:
-  #   - "sonarqube.cloudpro.com.tr"
-  #   - "harbor.cloudpro.com.tr"
-  #   - "vault.cloudpro.com.tr"
-  #   - "keycloak.cloudpro.com.tr"
-  #   - "argo.cloudpro.com.tr"
-  #   - "nexus.cloudpro.com.tr"
-
   initContainers:
   - name: git-cloner
     image: alpine/git:latest
@@ -55,7 +43,9 @@ spec:
     - name: NEXUS_PASSWORD
       value: __NEXUS_PASSWORD__
     - name: NEXUS_URL
-      value: "http://nexus-repository-manager.nexus:8081" # Düzeltildi!
+      value: "http://nexus-repository-manager.nexus:8081"
+    - name: BUILD_ID
+      value: __BUILD_ID__
     - name: SERVICE_NAME
       value: __SERVICE_NAME__
     volumeMounts:
@@ -68,15 +58,29 @@ spec:
       set -e
       cd /workspace/src/
       echo "Building Python distribution for $SERVICE_NAME..."
-      pip install -r requirements.txt
-      pip install wheel twine
+
+      if [ -n "$BUILD_ID" ]; then
+        echo "Using dynamic version: 0.1.0.$BUILD_ID"
+        sed -i "s/^    version='.*',$/    version='0.1.0.$BUILD_ID',/" setup.py
+      else
+        echo "WARNING: BUILD_ID not found. Using static version from setup.py."
+      fi
+
+      # YENİ EKLENEN KISIM: pip'i Nexus'u kullanacak şekilde yapılandırın
+      # BURAYI KENDİ NEXUS PİPİ GRUP VEYA PROXY REPOSITORY URL'İNİZLE DEĞİŞTİRİN!
+      # Örneğin: http://nexus-repository-manager.nexus:8081/repository/pypi-all/
+      NEXUS_PYPI_INDEX_URL="http://nexus-repository-manager.nexus:8081/repository/pypi-all/" 
+
+      echo "Configuring pip to use Nexus as package index: $NEXUS_PYPI_INDEX_URL"
+      pip install --index-url "$NEXUS_PYPI_INDEX_URL" --no-cache-dir -r requirements.txt
+      pip install --index-url "$NEXUS_PYPI_INDEX_URL" --no-cache-dir wheel twine
+
       python setup.py sdist bdist_wheel
-      
+
       echo "Publishing Python artifacts to Nexus hosted repository..."
-      # Artık TWINE_VERIFY_SSL=false'a gerek yok, çünkü HTTP kullanıyoruz
       TWINE_USERNAME=$NEXUS_USERNAME TWINE_PASSWORD=$NEXUS_PASSWORD twine upload \
-                               --repository-url $NEXUS_URL/repository/helpdesk-python-hosted/ \
-                               dist/*
+                              --repository-url $NEXUS_URL/repository/helpdesk-python-hosted/ \
+                              dist/*
       echo "Python artifacts published successfully to Nexus."
 
   volumes:
