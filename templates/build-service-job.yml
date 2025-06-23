@@ -224,22 +224,26 @@ jobs:
     inputs:
       targetType: 'inline'
       script: |
-        set -ex
+        set -ex # Bu hala iyi, ancak twine'ın davranışı nedeniyle bazen yeterli değil.
         
         # "publisher" konteynerinin Terminated olmasını bekle
-        # "--timeout" süresini koruyarak, ancak sadece konteynerin bitmesini kontrol et
         kubectl wait --for=jsonpath='{.status.containerStatuses[?(@.name=="publisher")].state.terminated.reason}'=Completed \
           pod/$(nexusPublisherPodName) --timeout=3m -n $(k8sNamespace)
         
         echo "Publisher container terminated. Getting logs and checking exit code..."
         
-        # Pod loglarını çek
-        kubectl logs $(nexusPublisherPodName) -n $(k8sNamespace) --all-containers
+        # Tüm logları çek ve bunları bir değişkene kaydet
+        POD_LOGS=$(kubectl logs $(nexusPublisherPodName) -n $(k8sNamespace) --all-containers)
+        echo "$POD_LOGS" # Logları pipeline çıktısına yazdır
         
-        # "publisher" konteynerinin çıkış kodunu kontrol et
+        # "publisher" konteynerinin çıkış kodunu al
         EXIT_CODE=$(kubectl get pod $(nexusPublisherPodName) -n $(k8sNamespace) -o jsonpath='{.status.containerStatuses[?(@.name=="publisher")].state.terminated.exitCode}')
         
-        if [ "$EXIT_CODE" -ne 0 ]; then 
+        # Ek kontrol: Twine hatasını loglarda ara
+        if echo "$POD_LOGS" | grep -q "Repository does not allow updating assets"; then
+          echo "##vso[task.logissue type=error;]Nexus Publisher Pod failed: Repository does not allow updating assets."
+          exit 1 # Pipeline'ı hemen durdur
+        elif [ "$EXIT_CODE" -ne 0 ]; then 
           echo "##vso[task.logissue type=error;]Nexus Publisher Pod (publisher container) failed with exit code: $EXIT_CODE"
           exit 1 
         else
