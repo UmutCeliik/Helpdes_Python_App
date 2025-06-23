@@ -165,10 +165,8 @@ jobs:
       targetType: 'inline'
       script: |
         set -ex
-
         # 1. Dal ve sürüme göre hedef depoyu ve sürüm numarasını belirle
         BASE_VERSION=$(grep -oP "version=['\"]\K[^'\"]+" "$(Build.SourcesDirectory)/${{ parameters.serviceName }}/setup.py")
-        
         if [[ "$(Build.SourceBranch)" == "refs/heads/main" ]]; then
           echo "Main branch build detected. Targeting releases repository."
           TARGET_REPO_URL="$(NEXUS_INTERNAL_URL)/repository/helpdesk-python-releases/"
@@ -176,7 +174,6 @@ jobs:
         else
           echo "Development branch build. Targeting snapshots repository."
           TARGET_REPO_URL="$(NEXUS_INTERNAL_URL)/repository/helpdesk-python-snapshots/"
-          # PEP 440 uyumlu geliştirme sürümü oluştur (örn: 0.1.0.dev202506231)
           DEV_VERSION_SUFFIX=".dev$(date +%Y%m%d)$(Build.BuildId)"
           PACKAGE_VERSION="$BASE_VERSION$DEV_VERSION_SUFFIX"
         fi
@@ -189,10 +186,9 @@ jobs:
         safePodSuffix=$(echo "${{ parameters.serviceName }}" | sed 's/_/-/g')
         nexusPublisherPodName="nexus-publisher-$(Build.BuildId)-$safePodSuffix"
         echo "##vso[task.setvariable variable=nexusPublisherPodName]$nexusPublisherPodName"
-        
         cp templates/nexus-publisher-pod-template.yaml "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
         
-        # 4. Placeholder'ları dinamik değerlerle değiştir
+        # 4. Gerekli tüm placeholder'ları dinamik değerlerle değiştir
         GIT_REPO_URL_WITH_TOKEN=$(echo "$(gitRepoUrl)" | sed "s,https://,https://$(System.AccessToken)@,")
         PYPI_GROUP_URL_WITH_CREDS=$(echo "$(NEXUS_INTERNAL_URL)/repository/helpdesk-pypi-all/simple/" | sed "s,http://,http://$(NEXUS_USERNAME):$(NEXUS_PASSWORD)@,")
 
@@ -206,44 +202,29 @@ jobs:
         sed -i "s|__PYPI_GROUP_URL__|$PYPI_GROUP_URL_WITH_CREDS|g" "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
         sed -i "s|__NEXUS_HOST__|$(NEXUS_HOST)|g" "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
 
-        echo "--- Generated Nexus Publisher Pod Manifest ---"
-        cat "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
-
   - task: Kubernetes@1
     displayName: '4b. Apply & Run Nexus Publisher Pod'
-    inputs:
-      connectionType: 'None'
-      namespace: '$(k8sNamespace)'
-      command: 'apply'
-      arguments: '-f $(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}'
+    inputs: { connectionType: 'None', namespace: '$(k8sNamespace)', command: 'apply', arguments: '-f $(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}' }
     condition: and(succeeded(), in(variables['serviceName'], 'user_service', 'ticket_service'), eq(variables['sonar_status'], 'OK'))
 
   - task: Bash@3
-    name: WaitAndGetNexusPublisherLogs
     displayName: '4c. Wait for Nexus Publisher Pod & Get Logs'
     inputs:
       targetType: 'inline'
       script: |
         set -ex
         echo "Waiting for pod $(nexusPublisherPodName) to complete..."; 
-        kubectl wait --for=condition=Completed pod/$(nexusPublisherPodName) --timeout=2m -n $(k8sNamespace);
+        kubectl wait --for=condition=Completed pod/$(nexusPublisherPodName) --timeout=5m -n $(k8sNamespace);
         kubectl logs $(nexusPublisherPodName) -n $(k8sNamespace) --all-containers --follow
         EXIT_CODE=$(kubectl get pod $(nexusPublisherPodName) -n $(k8sNamespace) -o jsonpath='{.status.containerStatuses[?(@.name=="publisher")].state.terminated.exitCode}')
-        echo "Nexus Publisher Pod exited with code: $EXIT_CODE"
-        if [ "$EXIT_CODE" -ne 0 ]; then
-            echo "##vso[task.logissue type=error;]Nexus Publisher Pod failed with exit code: $EXIT_CODE"
-            exit 1
-        fi
+        if [ "$EXIT_CODE" -ne 0 ]; then echo "##vso[task.logissue type=error;]Nexus Publisher Pod failed with exit code: $EXIT_CODE"; exit 1; fi
     condition: and(succeeded(), in(variables['serviceName'], 'user_service', 'ticket_service'), eq(variables['sonar_status'], 'OK'))
 
   - task: Kubernetes@1
     displayName: '4d. Cleanup Nexus Publisher Pod'
     condition: always()
-    inputs:
-      connectionType: 'None'
-      namespace: '$(k8sNamespace)'
-      command: 'delete'
-      arguments: 'pod/$(nexusPublisherPodName) --ignore-not-found=true'
+    inputs: { connectionType: 'None', namespace: '$(k8sNamespace)', command: 'delete', arguments: 'pod/$(nexusPublisherPodName) --ignore-not-found=true' }
+
 
   # ===================================================================
   # BÖLÜM 5: SBOM Üretimi ve Nexus'a Yükleme (Güncellenmiş)
