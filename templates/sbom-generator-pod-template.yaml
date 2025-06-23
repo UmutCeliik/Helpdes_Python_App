@@ -76,7 +76,7 @@ spec:
       
       if [[ "$SERVICE_NAME" == "user_service" || "$SERVICE_NAME" == "ticket_service" ]]; then
         # pip install cyclonedx-bom # Bu satırı kaldırın, Dockerfile'da yüklü
-        cyclonedx-bom -o sbom.json
+        python -m cyclonedx_bom -o sbom.json
       elif [[ "$SERVICE_NAME" == "frontend" ]]; then
         echo "Skipping SBOM for frontend in this example, adjust if needed."
         exit 0
