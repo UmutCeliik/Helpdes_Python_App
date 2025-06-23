@@ -8,6 +8,18 @@ metadata:
 spec:
   restartPolicy: Never
   serviceAccountName: ado-agent-sa
+  
+  # hostAliases bloğunu tamamen kaldırın, artık iç servis adı kullanıyoruz
+  # hostAliases:
+  # - ip: "10.77.3.203"
+  #   hostnames:
+  #   - "sonarqube.cloudpro.com.tr"
+  #   - "harbor.cloudpro.com.tr"
+  #   - "vault.cloudpro.com.tr"
+  #   - "keycloak.cloudpro.com.tr"
+  #   - "argo.cloudpro.com.tr"
+  #   - "nexus.cloudpro.com.tr"
+
   initContainers:
   - name: git-cloner
     image: alpine/git:latest
@@ -15,12 +27,20 @@ spec:
     args:
     - |
       set -e
-      GIT_REPO_URL_WITH_TOKEN=$(echo $GIT_REPO_URL | sed "s,https://,https://$AZP_TOKEN@,")
+      # URL'deki token'ın, 'sed' içerisinde özel karakter sorunları yaratmaması için tırnak işaretleri ve kaçış karakterleri ile dikkatli oluyoruz.
+      GIT_REPO_URL_WITH_TOKEN=$(echo "$GIT_REPO_URL" | sed "s,https://,https://$AZP_TOKEN@,")
       echo "Cloning repository from $GIT_REPO_URL into /workspace/src..."
       git clone "$GIT_REPO_URL_WITH_TOKEN" /workspace/src/
       if [ -n "$CONTEXT_SUB_PATH_RELATIVE" ]; then
         echo "Changing directory to relative path: $CONTEXT_SUB_PATH_RELATIVE"
-        mv /workspace/src/$CONTEXT_SUB_PATH_RELATIVE/* /workspace/src/ || true
+        # Kaynak dizin içeriğini doğrudan /workspace/src'ye taşı
+        # Kaynak repo kökü zaten projenin kendisi ise bu mv komutunu kaldırın.
+        # Örneğin, repo sadece 'ticket_service' içeriğini barındırıyorsa kaldırım
+        # Eğer repo bir monorepo (örn: helpdesk-app-src) ve içinde 'ticket_service' varsa bu mv gerekli.
+        # Bu komutun başarılı olması için dikkatli olun, taşınacak dosya yoksa hata verebilir.
+        # mv /workspace/src/$CONTEXT_SUB_PATH_RELATIVE/* /workspace/src/ || true
+        # mv /workspace/src/$CONTEXT_SUB_PATH_RELATIVE/.git* /workspace/src/ || true # .git dizini için
+        # rmdir /workspace/src/$CONTEXT_SUB_PATH_RELATIVE || true
       fi
       echo "Source code cloned successfully."
     env:
@@ -38,56 +58,68 @@ spec:
   - name: publisher
     image: umut98/nexus-publisher:latest
     env:
+    # Bu değişkenler NEXUS_USERNAME_VAR ve NEXUS_PASSWORD_VAR olarak değiştirilecek
     - name: NEXUS_USERNAME
-      value: __NEXUS_USERNAME__
+      value: __NEXUS_USERNAME_VAR__
     - name: NEXUS_PASSWORD
-      value: __NEXUS_PASSWORD__
+      value: __NEXUS_PASSWORD_VAR__
     - name: NEXUS_URL
-      value: "http://nexus-repository-manager.nexus:8081"
+      value: "http://nexus-repository-manager.nexus:8081" # İç Kubernetes servis URL'i
     - name: SERVICE_NAME
       value: __SERVICE_NAME__
-    - name: BUILD_ID # Build ID'yi pod'a ortam değişkeni olarak geçiriyoruz
+    - name: BUILD_ID 
       value: __BUILD_ID__
-    - name: NEXUS_USERNAME_VAR # Nexus Username'i Bash script'te kullanmak için
-      value: __NEXUS_USERNAME__
-    - name: NEXUS_PASSWORD_VAR # Nexus Password'u Bash script'te kullanmak için
-      value: __NEXUS_PASSWORD__
     volumeMounts:
     - name: work-volume
       mountPath: /workspace
     command: ["/bin/bash"]
     args:
     - "-c"
-  - |
-    set -e
-    cd /workspace/src/
-    echo "Building Python distribution for $SERVICE_NAME..."
+    - |
+      set -e
+      # CONTEXT_SUB_PATH_RELATIVE boş değilse, klasöre geç
+      # Eğer git clone doğrudan /workspace/src'ye projenin kökünü kopyalıyorsa,
+      # bu cd komutunu tamamen kaldırın, zaten doğru yerde olacaksınız.
+      # Aksi takdirde, eğer repo kökünde birden fazla servis varsa,
+      # 'ticket_service' gibi alt dizinlere geçmek için bu gereklidir.
+      # Loglara göre `cd /workspace/src/` doğru görünüyor.
+      cd /workspace/src/ 
 
-    if [ -n "$BUILD_ID" ]; then
-      echo "Using dynamic version: 0.1.0.$BUILD_ID"
-      sed -i "s/^    version='.*',$/    version='0.1.0.$BUILD_ID',/" setup.py
-    else
-      echo "WARNING: BUILD_ID not found. Using static version from setup.py."
-    fi
+      echo "Building Python distribution for $SERVICE_NAME..."
 
-    # YENİ KISIM: pip'i Nexus'u kullanacak şekilde yapılandırın
-    # BURAYI KENDİ NEXUS PİPİ GRUP VEYA PROXY REPOSITORY URL'İNİZLE DEĞİŞTİRİN!
-    # Nexus URL'ine kimlik bilgilerini gömüyoruz
-    NEXUS_PYPI_INDEX_URL="http://${NEXUS_USERNAME_VAR}:${NEXUS_PASSWORD_VAR}@nexus-repository-manager.nexus:8081/repository/pypi-all/" # <=== DÜZELTİLDİ!
-    
-    echo "Configuring pip to use Nexus as package index: $NEXUS_PYPI_INDEX_URL"
-    
-    # --trusted-host bayrağını ekledik ve kimlik bilgilerini URL'e gömdük
-    pip install --index-url "$NEXUS_PYPI_INDEX_URL" --trusted-host nexus-repository-manager.nexus --no-cache-dir -r requirements.txt
-    pip install --index-url "$NEXUS_PYPI_INDEX_URL" --trusted-host nexus-repository-manager.nexus --no-cache-dir wheel twine
+      if [ -n "$BUILD_ID" ]; then
+        echo "Using dynamic version: 0.1.0.$BUILD_ID"
+        # setup.py dosyasındaki 'version=' satırını bul ve dinamik versiyonla değiştir
+        # Sed komutunda dikkatli olalım, girinti hassasiyeti ve özel karakterler için.
+        # Sed'in ayıraç karakteri olarak '/' yerine başka bir karakter (örn: '#') kullanılabilir.
+        sed -i "s#^    version='.*',#    version='0.1.0.$BUILD_ID',#" setup.py
+      else
+        echo "WARNING: BUILD_ID not found. Using static version from setup.py."
+      fi
 
-    python setup.py sdist bdist_wheel
-    
-    echo "Publishing Python artifacts to Nexus hosted repository..."
-    TWINE_USERNAME=$NEXUS_USERNAME_VAR TWINE_PASSWORD=$NEXUS_PASSWORD_VAR twine upload \
-                             --repository-url $NEXUS_URL/repository/helpdesk-python-hosted/ \
-                             dist/*
-    echo "Python artifacts published successfully to Nexus."
+      # NEXUS_URL'den sadece hostname'i almak için (pip --trusted-host için)
+      # Nexus URL'ini ortam değişkeninden alıp hostname'i çıkarıyoruz
+      NEXUS_HOST_ONLY=$(echo "$NEXUS_URL" | sed -E 's|https?://([^/:]+).*|\1|')
+
+      # Pip'i Nexus'u kullanacak şekilde yapılandırıyoruz
+      # Kimlik bilgilerini URL içine gömüyoruz ve --trusted-host kullanıyoruz
+      echo "Configuring pip to use Nexus as package index: $NEXUS_URL/repository/pypi-all/"
+      pip install --index-url "$NEXUS_URL/repository/pypi-all/" \
+                  --trusted-host "$NEXUS_HOST_ONLY" \
+                  --no-cache-dir \
+                  -r requirements.txt
+      pip install --index-url "$NEXUS_URL/repository/pypi-all/" \
+                  --trusted-host "$NEXUS_HOST_ONLY" \
+                  --no-cache-dir \
+                  wheel twine
+
+      python setup.py sdist bdist_wheel
+      
+      echo "Publishing Python artifacts to Nexus hosted repository..."
+      TWINE_USERNAME="$NEXUS_USERNAME" TWINE_PASSWORD="$NEXUS_PASSWORD" twine upload \
+                               --repository-url "$NEXUS_URL/repository/helpdesk-python-hosted/" \
+                               dist/*
+      echo "Python artifacts published successfully to Nexus."
 
   volumes:
   - name: work-volume

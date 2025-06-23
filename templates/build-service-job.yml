@@ -218,28 +218,13 @@ jobs:
     inputs:
       targetType: 'inline'
       script: |
-        set -e
-        echo "Preparing Nexus Publisher manifest for service: ${{ parameters.serviceName }}..."
-        
-        safePodSuffix=$(echo "${{ parameters.serviceName }}" | sed 's/_/-/g')
-        nexusPublisherPodName="nexus-publisher-$(imageTag)-$safePodSuffix"
-        echo "##vso[task.setvariable variable=nexusPublisherPodName]$nexusPublisherPodName"
-        
-        cp templates/nexus-publisher-pod-template.yaml "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
-        sed -i "s|__POD_NAME__|$nexusPublisherPodName|g" "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
-        # YENİ: Username ve Password'u direkt olarak NEXUS_USERNAME_VAR ve NEXUS_PASSWORD_VAR olarak geçireceğiz
-        sed -i "s|- name: NEXUS_USERNAME|- name: NEXUS_USERNAME_VAR|g" "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
-        sed -i "s|- name: NEXUS_PASSWORD|- name: NEXUS_PASSWORD_VAR|g" "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
-        sed -i "s|value: __NEXUS_USERNAME__|value: $(NEXUS_USERNAME)|g" "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
-        sed -i "s|value: __NEXUS_PASSWORD__|value: $(NEXUS_PASSWORD)|g" "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
-        # ...
-        sed -i "s|__BUILD_ID__|$(Build.BuildId)|g" "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}" 
-    condition: and(succeeded(), eq('${{ parameters.serviceName }}', 'ticket_service'), eq(variables['sonar_status'], 'OK'))
-  
+        echo "Skipping User Service Python Publish for now. Implement as a pod-based job if needed."
+    condition: false # Şimdilik bu adımı atla, karışıklık olmasın
+
   # Python servisleri için yayınlama (Ticket Service) - ARTIK POD İÇİNDE YAPILACAK
   - task: Bash@3
     name: PrepareNexusPublisherManifest
-    displayName: '4b. Prepare Nexus Publisher Pod Manifest (Ticket Service)'
+    displayName: '4b. Prepare Nexus Publisher Pod Manifest (Ticket Service)' # Adı 4b olarak değişti
     inputs:
       targetType: 'inline'
       script: |
@@ -247,28 +232,36 @@ jobs:
         echo "Preparing Nexus Publisher manifest for service: ${{ parameters.serviceName }}..."
         
         safePodSuffix=$(echo "${{ parameters.serviceName }}" | sed 's/_/-/g')
-        nexusPublisherPodName="nexus-publisher-$(imageTag)-$safePodSuffix"
+        nexusPublisherPodName="nexus-publisher-$(Build.BuildId)-$safePodSuffix" # imageTag yerine Build.BuildId
         echo "##vso[task.setvariable variable=nexusPublisherPodName]$nexusPublisherPodName"
         
         cp templates/nexus-publisher-pod-template.yaml "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
         sed -i "s|__POD_NAME__|$nexusPublisherPodName|g" "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
-        sed -i "s|__NEXUS_USERNAME__|$NEXUS_USERNAME|g" "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
-        sed -i "s|__NEXUS_PASSWORD__|$NEXUS_PASSWORD|g" "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
-        # NEXUS_URL yerine doğrudan iç servis URL'ini yazıyoruz
-        sed -i "s|value: __NEXUS_URL__|value: http://nexus-repository-manager.nexus:8081|g" "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}" # DÜZELTİLDİ!
+        # NEXUS_USERNAME ve NEXUS_PASSWORD'u direkt olarak NEXUS_USERNAME_VAR ve NEXUS_PASSWORD_VAR olarak geçireceğiz
+        # Sed komutları artık `env` bloğunu hedeflemeli, 'value:' kısımlarını değil.
+        # Bu kısım YAML structure'ı doğru varsayarak çalışır.
+        # Lütfen aşağıdaki sed komutlarının doğru YAML formatını koruduğundan emin olun.
+        sed -i "s|__NEXUS_USERNAME_VAR__|$(NEXUS_USERNAME)|g" "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
+        sed -i "s|__NEXUS_PASSWORD_VAR__|$(NEXUS_PASSWORD)|g" "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
+        
+        # Diğer değişkenler
+        # NEXUS_URL template içinde sabit olduğu için bu satıra gerek kalmadı:
+        # sed -i "s|value: __NEXUS_URL__|value: http://nexus-repository-manager.nexus:8081|g" "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
         sed -i "s|__GIT_REPO_URL__|$(gitRepoUrl)|g" "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
         sed -i "s|__AZP_TOKEN__|$(System.AccessToken)|g" "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
         sed -i "s|__CONTEXT_SUB_PATH_RELATIVE__|${{ parameters.serviceName }}|g" "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
         sed -i "s|__SERVICE_NAME__|${{ parameters.serviceName }}|g" "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
-        # TWINE_VERIFY_SSL satırını kaldır (eğer YAML'da direkt sildiyseniz bu sed komutuna gerek kalmaz)
-        # sed -i '/- name: TWINE_VERIFY_SSL/d' "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
-        # sed -i '/value: "false"/d' "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
+        # __BUILD_ID__ placeholder'ını Build.BuildId ile değiştirir
+        sed -i "s|__BUILD_ID__|$(Build.BuildId)|g" "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}" 
+        
+        # YENİ EKLENEN KISIM: Oluşturulan YAML dosyasını pipeline loglarına yazdır
+        echo "--- Generated Nexus Publisher Pod Manifest ---"
+        cat "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
+        echo "----------------------------------------------"
     condition: and(succeeded(), eq('${{ parameters.serviceName }}', 'ticket_service'), eq(variables['sonar_status'], 'OK'))
 
-
-
   - task: Kubernetes@1
-    displayName: '4c. Apply & Run Nexus Publisher Pod (Ticket Service)'
+    displayName: '4c. Apply & Run Nexus Publisher Pod (Ticket Service)' # Adı 4c olarak değişti
     inputs:
       connectionType: 'None'
       namespace: '$(k8sNamespace)'
@@ -278,17 +271,14 @@ jobs:
 
   - task: Bash@3
     name: WaitAndGetNexusPublisherLogs
-    displayName: '4d. Wait for Nexus Publisher Pod to Complete & Get Logs (Ticket Service)'
+    displayName: '4d. Wait for Nexus Publisher Pod to Complete & Get Logs (Ticket Service)' # Adı 4d olarak değişti
     inputs:
       targetType: 'inline'
       script: |
         set -x # Debug modunu aç
         echo "Waiting for pod $(nexusPublisherPodName) to complete..."; 
-        # Pod'un "Completed" durumuna gelmesini bekle
-        kubectl wait --for=condition=Completed pod/$(nexusPublisherPodName) --timeout=3m -n $(k8sNamespace);
-        # Pod'un loglarını çek
+        kubectl wait --for=condition=Completed pod/$(nexusPublisherPodName) --timeout=10m -n $(k8sNamespace); # Timeout 10 dakikaya çıkarıldı
         kubectl logs $(nexusPublisherPodName) -n $(k8sNamespace) --follow
-        # Pod'un exit kodunu kontrol et
         EXIT_CODE=$(kubectl get pod $(nexusPublisherPodName) -n $(k8sNamespace) -o jsonpath='{.status.containerStatuses[?(@.name=="publisher")].state.terminated.exitCode}')
         echo "Nexus Publisher Pod exited with code: $EXIT_CODE"
         if [ "$EXIT_CODE" -ne 0 ]; then
@@ -297,9 +287,8 @@ jobs:
         fi
     condition: and(succeeded(), eq('${{ parameters.serviceName }}', 'ticket_service'), eq(variables['sonar_status'], 'OK'))
 
-
   - task: Kubernetes@1
-    displayName: '4e. Cleanup Nexus Publisher Pod (Ticket Service)'
+    displayName: '4e. Cleanup Nexus Publisher Pod (Ticket Service)' # Adı 4e olarak değişti
     condition: always()
     inputs:
       connectionType: 'None'
