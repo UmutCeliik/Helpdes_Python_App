@@ -38,19 +38,17 @@ spec:
   - name: publisher
     image: umut98/nexus-publisher:latest
     env:
-    - name: NEXUS_USERNAME
-      value: __NEXUS_USERNAME__
+    - name: NEXUS_USERNAME # Bu değişkenler zaten doğru şekilde değerleriyle geliyor
+      value: __NEXUS_USERNAME__ # Placeholder, sed tarafından doldurulacak
     - name: NEXUS_PASSWORD
-      value: __NEXUS_PASSWORD__
+      value: __NEXUS_PASSWORD__ # Placeholder, sed tarafından doldurulacak
     - name: NEXUS_URL
       value: "http://nexus-repository-manager.nexus:8081"
     - name: SERVICE_NAME
       value: __SERVICE_NAME__
     - name: BUILD_ID 
       value: "__BUILD_ID__"
-    # CONTEXT_SUB_PATH_RELATIVE zaten Init Container'a aktarılıyor,
-    # burada da ortam değişkeni olarak tutmak mantıklı.
-    - name: CONTEXT_SUB_PATH_RELATIVE
+    - name: CONTEXT_SUB_PATH_RELATIVE # Bu da env'de tanımlı olmalı
       value: __CONTEXT_SUB_PATH_RELATIVE__
     volumeMounts:
     - name: work-volume
@@ -60,8 +58,21 @@ spec:
     - "-c"
     - |
       set -e
+      # Hata ayıklama komutları aynı kalacak
+      echo "--- Hata Ayıklama Bilgisi (YENİ) ---"
+      echo "cd komutu öncesi mevcut dizin: $(pwd)"
+      echo "Init Container tarafından klonlanan /workspace/src/ içeriği:"
+      ls -l /workspace/src/
+      echo "CONTEXT_SUB_PATH_RELATIVE ortam değişkeni değeri: '${CONTEXT_SUB_PATH_RELATIVE}'"
+      echo "-----------------------------"
+
       cd "/workspace/src/$CONTEXT_SUB_PATH_RELATIVE/" # Bu zaten doğru çalışıyor
-      
+
+      echo "cd komutu sonrası mevcut dizin: $(pwd)"
+      echo "Mevcut dizin içeriği:"
+      ls -l .
+      echo "-----------------------------"
+
       echo "Building Python distribution for $SERVICE_NAME..."
 
       if [ -n "$BUILD_ID" ]; then
@@ -71,8 +82,9 @@ spec:
         echo "WARNING: BUILD_ID not found. Using static version from setup.py."
       fi
 
-      # NEXUS_PYPI_INDEX_URL'de doğrudan $NEXUS_USERNAME ve $NEXUS_PASSWORD kullanıyoruz
-      NEXUS_PYPI_INDEX_URL="http://${NEXUS_USERNAME}:${NEXUS_PASSWORD}@nexus-repository-manager.nexus:8081/repository/pypi-all/" # DÜZELTİLDİ!
+      # YENİ KISIM: pip'i Nexus'u kullanacak şekilde yapılandırın
+      # NEXUS_PYPI_INDEX_URL'de $NEXUS_USERNAME ve $NEXUS_PASSWORD kullanıyoruz (DÜZELTİLDİ!)
+      NEXUS_PYPI_INDEX_URL="http://${NEXUS_USERNAME}:${NEXUS_PASSWORD}@nexus-repository-manager.nexus:8081/repository/pypi-all/" 
       echo "Configuring pip to use Nexus as package index: $NEXUS_PYPI_INDEX_URL"
       
       pip install --index-url "$NEXUS_PYPI_INDEX_URL" --trusted-host nexus-repository-manager.nexus --no-cache-dir -r requirements.txt
@@ -81,6 +93,7 @@ spec:
       python setup.py sdist bdist_wheel
       
       echo "Publishing Python artifacts to Nexus hosted repository..."
+      # Twine komutlarında da zaten doğru değişkenler kullanılıyor
       TWINE_USERNAME="$NEXUS_USERNAME" TWINE_PASSWORD="$NEXUS_PASSWORD" twine upload \
                                --repository-url "$NEXUS_URL/repository/helpdesk-python-hosted/" \
                                dist/*
