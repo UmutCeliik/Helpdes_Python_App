@@ -219,22 +219,25 @@ jobs:
       targetType: 'inline'
       script: |
         set -e
-        # Hedef dizine geç
-        cd $(Build.SourcesDirectory)/${{ parameters.serviceName }}
-
-        echo "Building Python distribution for ${{ parameters.serviceName }}..."
+        echo "Preparing Nexus Publisher manifest for service: ${{ parameters.serviceName }}..."
         
-        # Bağımlılıkları kur ve paketi oluştur
-        pip install -r requirements.txt
-        pip install wheel twine
-        python setup.py sdist bdist_wheel
+        safePodSuffix=$(echo "${{ parameters.serviceName }}" | sed 's/_/-/g')
+        nexusPublisherPodName="nexus-publisher-$(imageTag)-$safePodSuffix"
+        echo "##vso[task.setvariable variable=nexusPublisherPodName]$nexusPublisherPodName"
         
-        echo "Publishing Python artifacts to Nexus hosted repository..."
-        REQUESTS_VERIFY=false TWINE_USERNAME=$(NEXUS_USERNAME) TWINE_PASSWORD=$(NEXUS_PASSWORD) twine upload \
-                                --repository-url $(NEXUS_URL)/repository/helpdesk-python-hosted/ \
-                                dist/*
-        echo "Python artifacts published successfully to Nexus."
-    condition: and(succeeded(), eq('${{ parameters.serviceName }}', 'user_service'), eq(variables['sonar_status'], 'OK'))
+        cp templates/nexus-publisher-pod-template.yaml "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
+        sed -i "s|__POD_NAME__|$nexusPublisherPodName|g" "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
+        sed -i "s|__NEXUS_USERNAME__|$NEXUS_USERNAME|g" "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
+        sed -i "s|__NEXUS_PASSWORD__|$NEXUS_PASSWORD|g" "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
+        # NEXUS_URL değeri artık doğrudan template'in içine yazıldığı için bu sed komutuna gerek kalmadı:
+        # sed -i "s|value: __NEXUS_URL__|value: http://nexus-repository-manager.nexus:8081|g" "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
+        sed -i "s|__GIT_REPO_URL__|$(gitRepoUrl)|g" "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
+        sed -i "s|__AZP_TOKEN__|$(System.AccessToken)|g" "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
+        sed -i "s|__CONTEXT_SUB_PATH_RELATIVE__|${{ parameters.serviceName }}|g" "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
+        sed -i "s|__SERVICE_NAME__|${{ parameters.serviceName }}|g" "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}"
+        # YENİ SED KOMUTU: __BUILD_ID__ placeholder'ını Build.BuildId ile değiştirir
+        sed -i "s|__BUILD_ID__|$(Build.BuildId)|g" "$(kanikoFinalFile)-nexus-publisher-${{ parameters.serviceName }}" 
+    condition: and(succeeded(), eq('${{ parameters.serviceName }}', 'ticket_service'), eq(variables['sonar_status'], 'OK'))
   
   # Python servisleri için yayınlama (Ticket Service) - ARTIK POD İÇİNDE YAPILACAK
   - task: Bash@3
