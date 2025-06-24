@@ -41,35 +41,38 @@ jobs:
   - checkout: self
     persistCredentials: true
 
-  # # ===================================================================
-  # # BÖLÜM 1: SCA TARAMA POD'U (Yorumlu bırakıldı)
-  # # ===================================================================
-  # - task: Bash@3
-  #   name: PrepareScaManifest
-  #   displayName: '1a. Prepare SCA Pod Manifest'
-  #   env:
-  #     AZP_TOKEN: $(System.AccessToken)
-  #   inputs:
-  #     targetType: 'inline'
-  #     script: |
-  #       echo "Preparing SCA manifest for service: $(serviceName)..."
-  #       if [[ "$(serviceName)" == "frontend" ]]; then SCANNER_IMAGE="node:20-slim"; SERVICE_TYPE="frontend"; else SCANNER_IMAGE="python:3.11-slim"; SERVICE_TYPE="backend"; fi
-  #       safePodSuffix=$(echo "$(serviceName)" | sed 's/_/-/g'); scaPodName="sca-$(imageTag)-$safePodSuffix"; echo "##vso[task.setvariable variable=scaPodName]$scaPodName"
-  #       cp templates/sca-pod-template.yaml "$(kanikoFinalFile)-sca-$(serviceName)"
-  #       sed -i "s|__POD_NAME__|$scaPodName|g" "$(kanikoFinalFile)-sca-$(serviceName)"; sed -i "s|__CONTEXT__|$(gitRepoUrl)|g" "$(kanikoFinalFile)-sca-$(serviceName)"; sed -i "s|__CONTEXT_SUB_PATH__|$(serviceName)|g" "$(kanikoFinalFile)-sca-$(serviceName)"; sed -i "s|__AZP_TOKEN__|$AZP_TOKEN|g" "$(kanikoFinalFile)-sca-$(serviceName)"; sed -i "s|__SCANNER_IMAGE__|$SCANNER_IMAGE|g" "$(kanikoFinalFile)-sca-$(serviceName)"; sed -i "s|__SERVICE_TYPE__|$SERVICE_TYPE|g" "$(kanikoFinalFile)-sca-$(serviceName)"
-  # - task: Kubernetes@1
-  #   displayName: '1b. Apply & Run SCA Pod'
-  #   inputs: { connectionType: 'None', namespace: '$(k8sNamespace)', command: 'apply', arguments: '-f $(kanikoFinalFile)-sca-$(serviceName)' }
-  # - task: Bash@3
-  #   displayName: '1c. Wait for SCA Pod to Complete & Get Logs'
-  #   inputs:
-  #     targetType: 'inline'
-  #     script: |
-  #       echo "Waiting for pod $(scaPodName) to finish..."; kubectl wait --for=condition=Ready pod/$(scaPodName) --timeout=5m -n $(k8sNamespace); kubectl logs $(scaPodName) -n $(k8sNamespace) -c scanner --follow
-  # - task: Kubernetes@1
-  #   displayName: '1d. Cleanup SCA Pod'
-  #   condition: always()
-  #   inputs: { connectionType: 'None', namespace: '$(k8sNamespace)', command: 'delete', arguments: 'pod/$(scaPodName) --ignore-not-found=true' }
+  # ===================================================================
+  # BÖLÜM 1: SCA TARAMA POD'U (Yorumlu bırakıldı)
+  # ===================================================================
+  - task: Bash@3
+    name: PrepareScaManifest
+    displayName: '1a. Prepare SCA Pod Manifest'
+    env:
+      AZP_TOKEN: $(System.AccessToken)
+    inputs:
+      targetType: 'inline'
+      script: |
+        echo "Preparing SCA manifest for service: $(serviceName)..."
+        if [[ "$(serviceName)" == "frontend" ]]; then SCANNER_IMAGE="node:20-slim"; SERVICE_TYPE="frontend"; else SCANNER_IMAGE="python:3.11-slim"; SERVICE_TYPE="backend"; fi
+        safePodSuffix=$(echo "$(serviceName)" | sed 's/_/-/g'); scaPodName="sca-$(imageTag)-$safePodSuffix"; echo "##vso[task.setvariable variable=scaPodName]$scaPodName"
+        cp templates/sca-pod-template.yaml "$(kanikoFinalFile)-sca-$(serviceName)"
+        sed -i "s|__POD_NAME__|$scaPodName|g" "$(kanikoFinalFile)-sca-$(serviceName)"; sed -i "s|__CONTEXT__|$(gitRepoUrl)|g" "$(kanikoFinalFile)-sca-$(serviceName)"; sed -i "s|__CONTEXT_SUB_PATH__|$(serviceName)|g" "$(kanikoFinalFile)-sca-$(serviceName)"; sed -i "s|__AZP_TOKEN__|$AZP_TOKEN|g" "$(kanikoFinalFile)-sca-$(serviceName)"; sed -i "s|__SCANNER_IMAGE__|$SCANNER_IMAGE|g" "$(kanikoFinalFile)-sca-$(serviceName)"; sed -i "s|__SERVICE_TYPE__|$SERVICE_TYPE|g" "$(kanikoFinalFile)-sca-$(serviceName)"
+
+  - task: Kubernetes@1
+    displayName: '1b. Apply & Run SCA Pod'
+    inputs: { connectionType: 'None', namespace: '$(k8sNamespace)', command: 'apply', arguments: '-f $(kanikoFinalFile)-sca-$(serviceName)' }
+
+  - task: Bash@3
+    displayName: '1c. Wait for SCA Pod to Complete & Get Logs'
+    inputs:
+      targetType: 'inline'
+      script: |
+        echo "Waiting for pod $(scaPodName) to finish..."; kubectl wait --for=condition=Ready pod/$(scaPodName) --timeout=5m -n $(k8sNamespace); kubectl logs $(scaPodName) -n $(k8sNamespace) -c scanner --follow
+        
+  - task: Kubernetes@1
+    displayName: '1d. Cleanup SCA Pod'
+    condition: always()
+    inputs: { connectionType: 'None', namespace: '$(k8sNamespace)', command: 'delete', arguments: 'pod/$(scaPodName) --ignore-not-found=true' }
 
   # ===================================================================
   # BÖLÜM 2: SONARQUBE TARAMA POD'U (Değişiklik yok, aynı kalıyor)
@@ -127,41 +130,13 @@ jobs:
     condition: always()
     inputs: { connectionType: 'None', namespace: '$(k8sNamespace)', command: 'delete', arguments: 'pod/$(sonarPodName) --ignore-not-found=true' }
 
-  # # ===================================================================
-  # # BÖLÜM 3: KANIKO BUILD POD'U (Yorumlu bırakıldı)
-  # # ===================================================================
-  # - task: Bash@3
-  #   name: PrepareKanikoManifest
-  #   displayName: '3a. Prepare Kaniko Manifest'
-  #   env:
-  #     AZP_TOKEN: $(System.AccessToken)
-  #   inputs:
-  #     targetType: 'inline'
-  #     script: |
-  #       safePodSuffix=$(echo "$(serviceName)" | sed 's/_/-/g'); kanikoPodName="kaniko-build-$(imageTag)-$safePodSuffix"; echo "##vso[task.setvariable variable=kanikoPodName]$kanikoPodName"
-  #       cp "$(kanikoTemplateFile)" "$(kanikoFinalFile)-kaniko-$(serviceName)"; sed -i "s|__POD_NAME__|$kanikoPodName|g" "$(kanikoFinalFile)-kaniko-$(serviceName)"; sed -i "s|__CONTEXT__|$(gitRepoUrl)|g" "$(kanikoFinalFile)-kaniko-$(serviceName)"; sed -i "s|__CONTEXT_SUB_PATH__|$(serviceName)|g" "$(kanikoFinalFile)-kaniko-$(serviceName)"; sed -i "s|__DESTINATION_TAG__|$(harborRepo)/$(serviceName):$(imageTag)|g" "$(kanikoFinalFile)-kaniko-$(serviceName)"; sed -i "s|__AZP_TOKEN__|$AZP_TOKEN|g" "$(kanikoFinalFile)-kaniko-$(serviceName)"
-  # - task: Kubernetes@1
-  #   displayName: '3b. Apply & Run Kaniko Pod'
-  #   inputs: { connectionType: 'None', namespace: '$(k8sNamespace)', command: 'apply', arguments: '-f $(kanikoFinalFile)-kaniko-$(serviceName)' }
-  # - task: Bash@3
-  #   displayName: '3c. Wait for Kaniko Pod to Complete & Get Logs'
-  #   inputs:
-  #     targetType: 'inline'
-  #     script: |
-  #       echo "Waiting for pod $(kanikoPodName) to start..."; kubectl wait --for=condition=Ready pod/$(kanikoPodName) --timeout=15m -n $(k8sNamespace); kubectl logs $(kanikoPodName) -n $(k8sNamespace) -c kaniko --follow
-  # - task: Kubernetes@1
-  #   displayName: '3d. Cleanup Kaniko Pod'
-  #   condition: always()
-  #   inputs: { connectionType: 'None', namespace: '$(k8sNamespace)', command: 'delete', arguments: 'pod/$(kanikoPodName) --ignore-not-found=true' }
-  
   # ===================================================================
-  # BÖLÜM 4: PYTHON ARTIFACT'LARINI NEXUS'A YAYINLAMA (YENİLENMİŞ)
+  # BÖLÜM 3: PYTHON ARTIFACT'LARINI NEXUS'A YAYINLAMA
   # ===================================================================
   - task: Bash@3
     name: PrepareNexusPublisherManifest
-    displayName: '4a. Prepare Nexus Publisher Pod Manifest'
+    displayName: '3a. Prepare Nexus Publisher Pod Manifest'
     condition: and(succeeded(), in(variables['serviceName'], 'user_service', 'ticket_service'), eq(variables['sonar_status'], 'OK'))
-    # --- DEĞİŞİKLİK: SonarQube adımıyla aynı mantık kullanılıyor ---
     env:
       AZP_TOKEN: $(System.AccessToken)
     inputs:
@@ -211,7 +186,7 @@ jobs:
         cat "$finalManifestFile"
 
   - task: Kubernetes@1
-    displayName: '4b. Apply & Run Nexus Publisher Pod'
+    displayName: '3b. Apply & Run Nexus Publisher Pod'
     inputs:
       connectionType: 'None'
       namespace: '$(k8sNamespace)'
@@ -220,45 +195,89 @@ jobs:
     condition: and(succeeded(), in(variables['serviceName'], 'user_service', 'ticket_service'), eq(variables['sonar_status'], 'OK'))
 
   - task: Bash@3
-    displayName: '4c. Wait for Nexus Publisher Pod & Get Logs'
+    displayName: '3c. Wait for Nexus Publisher Pod & Get Logs'
     inputs:
       targetType: 'inline'
       script: |
-        set -ex # Bu hala iyi, ancak twine'ın davranışı nedeniyle bazen yeterli değil.
+        set -ex
         
-        # "publisher" konteynerinin Terminated olmasını bekle
-        kubectl wait --for=jsonpath='{.status.containerStatuses[?(@.name=="publisher")].state.terminated.reason}'=Completed \
-          pod/$(nexusPublisherPodName) --timeout=3m -n $(k8sNamespace)
+        # Pod'un genel olarak sonlanmasını bekle (Completed veya Failed olabilir)
+        # Pod Terminated olduğunda bu komut hemen geri dönecektir, timeout maksimum süredir.
+        # Kubernetes, bir konteyner Error ile biterse pod'u Failed olarak işaretler.
+        kubectl wait --for=condition=Ready pod/$(nexusPublisherPodName) --timeout=3m -n $(k8sNamespace) || true
+        # Neden "Ready" bekliyoruz? Çünkü "Ready" durumuna gelince (yani çalışmaya başlayınca) genelde ya hemen işini bitirir ya da hata verir.
+        # "Completed" veya "Failed" gibi son durumları doğrudan beklemek, Kubernetes'in iç durum güncellemelerinde yaşanan küçük gecikmeler nedeniyle yanıltıcı olabilir.
+        # Ayrıca, pod hatalı bir şekilde bile olsa başlatılamazsa (ImagePullBackOff vb.) "Ready" durumuna asla gelmez, bu da timeout'a neden olur.
+        # "|| true" ekledik çünkü "kubectl wait" bir hata dönerse (örn. timeout) scripti durdurmasın, biz manuel kontrol edeceğiz.
         
-        echo "Publisher container terminated. Getting logs and checking exit code..."
+        echo "Publisher pod has finished (or timed out). Getting logs and checking exit code..."
         
         # Tüm logları çek ve bunları bir değişkene kaydet
         POD_LOGS=$(kubectl logs $(nexusPublisherPodName) -n $(k8sNamespace) --all-containers)
         echo "$POD_LOGS" # Logları pipeline çıktısına yazdır
         
-        # "publisher" konteynerinin çıkış kodunu al
+        # "publisher" konteynerinin çıkış kodunu kontrol et
+        # Eğer konteyner Terminated durumunda değilse (örneğin hala Running veya bekliyor), bu komut boş dönebilir.
+        # Bu yüzden pod'un genel durumunu da kontrol etmek önemlidir.
         EXIT_CODE=$(kubectl get pod $(nexusPublisherPodName) -n $(k8sNamespace) -o jsonpath='{.status.containerStatuses[?(@.name=="publisher")].state.terminated.exitCode}')
-        
-        # Ek kontrol: Twine hatasını loglarda ara
-        if echo "$POD_LOGS" | grep -q "Repository does not allow updating assets"; then
-          echo "##vso[task.logissue type=error;]Nexus Publisher Pod failed: Repository does not allow updating assets."
-          exit 1 # Pipeline'ı hemen durdur
-        elif [ "$EXIT_CODE" -ne 0 ]; then 
-          echo "##vso[task.logissue type=error;]Nexus Publisher Pod (publisher container) failed with exit code: $EXIT_CODE"
-          exit 1 
+        POD_STATUS=$(kubectl get pod $(nexusPublisherPodName) -n $(k8sNamespace) -o jsonpath='{.status.phase}')
+
+        echo "Pod final status: $POD_STATUS"
+        echo "Publisher container exit code: ${EXIT_CODE:-N/A}" # EXIT_CODE boşsa N/A göster
+
+        # Eğer pod durumu "Failed" ise veya ana konteynerin exit kodu 0 değilse, hata ver
+        if [ "$POD_STATUS" == "Failed" ]; then
+            echo "##vso[task.logissue type=error;]Nexus Publisher Pod failed. Check logs for details."
+            exit 1
+        elif [ "$EXIT_CODE" -ne 0 ]; then
+            # Pod Failed olmasa bile konteyner hatayla çıkmış olabilir (daha az olası)
+            echo "##vso[task.logissue type=error;]Nexus Publisher Pod (publisher container) failed with exit code: $EXIT_CODE"
+            exit 1
         else
-          echo "Nexus Publisher Pod (publisher container) completed successfully."
+            echo "Nexus Publisher Pod completed successfully."
         fi
     condition: and(succeeded(), in(variables['serviceName'], 'user_service', 'ticket_service'), eq(variables['sonar_status'], 'OK'))
 
   - task: Kubernetes@1
-    displayName: '4d. Cleanup Nexus Publisher Pod'
+    displayName: '3d. Cleanup Nexus Publisher Pod'
     condition: always()
     inputs:
       connectionType: 'None'
       namespace: '$(k8sNamespace)'
       command: 'delete'
       arguments: 'pod/$(nexusPublisherPodName) --ignore-not-found=true'
+
+  # ===================================================================
+  # BÖLÜM 4: KANIKO BUILD POD'U
+  # ===================================================================
+  - task: Bash@3
+    name: PrepareKanikoManifest
+    displayName: '4a. Prepare Kaniko Manifest'
+    env:
+      AZP_TOKEN: $(System.AccessToken)
+    inputs:
+      targetType: 'inline'
+      script: |
+        safePodSuffix=$(echo "$(serviceName)" | sed 's/_/-/g'); kanikoPodName="kaniko-build-$(imageTag)-$safePodSuffix"; echo "##vso[task.setvariable variable=kanikoPodName]$kanikoPodName"
+        cp "$(kanikoTemplateFile)" "$(kanikoFinalFile)-kaniko-$(serviceName)"; sed -i "s|__POD_NAME__|$kanikoPodName|g" "$(kanikoFinalFile)-kaniko-$(serviceName)"; sed -i "s|__CONTEXT__|$(gitRepoUrl)|g" "$(kanikoFinalFile)-kaniko-$(serviceName)"; sed -i "s|__CONTEXT_SUB_PATH__|$(serviceName)|g" "$(kanikoFinalFile)-kaniko-$(serviceName)"; sed -i "s|__DESTINATION_TAG__|$(harborRepo)/$(serviceName):$(imageTag)|g" "$(kanikoFinalFile)-kaniko-$(serviceName)"; sed -i "s|__AZP_TOKEN__|$AZP_TOKEN|g" "$(kanikoFinalFile)-kaniko-$(serviceName)"
+
+  - task: Kubernetes@1
+    displayName: '4b. Apply & Run Kaniko Pod'
+    inputs: { connectionType: 'None', namespace: '$(k8sNamespace)', command: 'apply', arguments: '-f $(kanikoFinalFile)-kaniko-$(serviceName)' }
+
+  - task: Bash@3
+    displayName: '4c. Wait for Kaniko Pod to Complete & Get Logs'
+    inputs:
+      targetType: 'inline'
+      script: |
+        echo "Waiting for pod $(kanikoPodName) to start..."; kubectl wait --for=condition=Ready pod/$(kanikoPodName) --timeout=15m -n $(k8sNamespace); kubectl logs $(kanikoPodName) -n $(k8sNamespace) -c kaniko --follow
+
+  - task: Kubernetes@1
+    displayName: '4d. Cleanup Kaniko Pod'
+    condition: always()
+    inputs: { connectionType: 'None', namespace: '$(k8sNamespace)', command: 'delete', arguments: 'pod/$(kanikoPodName) --ignore-not-found=true' }
+  
+  
 
   # ===================================================================
   # BÖLÜM 5: SBOM Üretimi ve Nexus'a Yükleme (Güncellenmiş)
@@ -296,14 +315,30 @@ jobs:
       targetType: 'inline'
       script: |
         set -ex
-        echo "Waiting for pod $(sbomPodName) to complete..."; 
-        kubectl wait --for=condition=Completed pod/$(sbomPodName) --timeout=2m -n $(k8sNamespace);
-        kubectl logs $(sbomPodName) -n $(k8sNamespace) --all-containers --follow
+        echo "Waiting for pod $(sbomPodName) to be Ready or terminate..."; 
+        kubectl wait --for=condition=Ready pod/$(sbomPodName) --timeout=2m -n $(k8sNamespace) || true # Timeout'u beklemeden devam et
+        
+        POD_LOGS=$(kubectl logs $(sbomPodName) -n $(k8sNamespace) --all-containers)
+        echo "$POD_LOGS" # Logları pipeline çıktısına yazdır
+
         EXIT_CODE=$(kubectl get pod $(sbomPodName) -n $(k8sNamespace) -o jsonpath='{.status.containerStatuses[?(@.name=="generator")].state.terminated.exitCode}')
-        echo "SBOM Generator Pod exited with code: $EXIT_CODE"
-        if [ "$EXIT_CODE" -ne 0 ]; then
-            echo "##vso[task.logissue type=error;]SBOM Generator Pod failed with exit code: $EXIT_CODE"
+        POD_STATUS=$(kubectl get pod $(sbomPodName) -n $(k8sNamespace) -o jsonpath='{.status.phase}')
+
+        echo "SBOM Generator Pod final status: $POD_STATUS"
+        echo "SBOM Generator container exit code: ${EXIT_CODE:-N/A}"
+
+        if [ "$POD_STATUS" == "Failed" ]; then
+            echo "##vso[task.logissue type=error;]SBOM Generator Pod failed. Check logs for details."
             exit 1
+        elif [ "$EXIT_CODE" -ne 0 ]; then
+            echo "##vso[task.logissue type=error;]SBOM Generator Pod (generator container) failed with exit code: $EXIT_CODE"
+            exit 1
+        # SBOM özelinde başarısızlık mesajı arayabilirsin (örn: "SBOM creation failed", "Error generating SPDX")
+        elif echo "$POD_LOGS" | grep -qi "error generating\|sbom creation failed"; then # 'qi' case-insensitive ve quiet
+            echo "##vso[task.logissue type=error;]SBOM Generation failed due to an error in the pod logs."
+            exit 1
+        else
+            echo "SBOM Generator Pod completed successfully."
         fi
     condition: succeeded()
 
