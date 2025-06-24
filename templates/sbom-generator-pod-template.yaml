@@ -59,7 +59,7 @@ spec:
       echo "Generating SBOM for $SERVICE_NAME..."
 
       if [[ "$SERVICE_NAME" == "user_service" || "$SERVICE_NAME" == "ticket_service" ]]; then
-        cyclonedx-py requirements -r requirements.txt -o sbom.json
+        cyclonedx-py --format json --output-file sbom.json requirements.txt
       elif [[ "$SERVICE_NAME" == "frontend" ]]; then
         echo "Skipping SBOM for frontend service."
         exit 0
@@ -68,7 +68,6 @@ spec:
         exit 0
       fi
 
-      # ... (geri kalan script aynı) ...
       echo "--- Generated SBOM Preview ---"
       head -n 10 sbom.json
       echo "----------------------------"
