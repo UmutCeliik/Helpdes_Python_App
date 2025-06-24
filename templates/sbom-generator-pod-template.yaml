@@ -60,7 +60,7 @@ spec:
 
       if [[ "$SERVICE_NAME" == "user_service" || "$SERVICE_NAME" == "ticket_service" ]]; then
         # Düzeltilmiş cyclonedx-py komutu
-        cyclonedx-py **requirements** -r requirements.txt -o sbom.json
+        cyclonedx-py requirements -r requirements.txt -o sbom.json
       elif [[ "$SERVICE_NAME" == "frontend" ]]; then
         echo "Skipping SBOM for frontend service."
         exit 0
@@ -90,7 +90,7 @@ spec:
       cat curl_sbom_output.log
       echo "SBOM uploaded to Nexus successfully."
 
-      **exec sleep 5** # Konteynerin doğru şekilde kapanmasını sağla
+      exec sleep 5
   volumes:
   - name: work-volume
     emptyDir: {}

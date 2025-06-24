@@ -80,7 +80,7 @@ spec:
         echo "Artifacts published successfully."
 
         # Konteynerin doğru şekilde kapanmasını sağla
-        **exec sleep 5** # Küçük bir bekleme süresi ve ardından exec ile konteynerin kapanmasını bekle
+        exec sleep 5 # Küçük bir bekleme süresi ve ardından exec ile konteynerin kapanmasını bekle
   volumes:
   - name: work-volume
     emptyDir: {}
