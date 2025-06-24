@@ -1,6 +1,4 @@
-# templates/sbom-generator-pod-template.yaml (GÜNCELLENMİŞ - Resmi cyclonedx/cyclonedx-python İmajı ile)
-# Bu şablon, Python projeleri için özel olarak geliştirilmiş resmi Docker imajını kullanır.
-# Bu yaklaşım, özel imaj oluşturma ve bakım sorunlarını ortadan kaldırarak en stabil çözümü sunar.
+# templates/sbom-generator-pod-template.yaml
 apiVersion: v1
 kind: Pod
 metadata:
