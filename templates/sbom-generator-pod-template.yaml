@@ -36,12 +36,9 @@ spec:
   # 2. Ana Container: SBOM oluşturur ve yükler
   containers:
   - name: generator
-    # --- EN ÖNEMLİ DEĞİŞİKLİK ---
-    # Özel imaj yerine, CycloneDX projesinin resmi Python imajını kullanıyoruz.
     image: cyclonedx/cyclonedx-python:latest
-    # ----------------------------
-    # Komutların çalışacağı dizini doğru servis klasörü olarak ayarlıyoruz.
     workingDir: /workspace/source/__CONTEXT_SUB_PATH_RELATIVE__/
+    command: ["/bin/bash", "-c"]
     env:
     - name: NEXUS_USERNAME
       value: __NEXUS_USERNAME__
@@ -56,7 +53,6 @@ spec:
     volumeMounts:
     - name: work-volume
       mountPath: /workspace
-    command: ["/bin/sh", "-c"]
     args:
     - |
       set -ex # Hata durumunda çık ve komutları logla

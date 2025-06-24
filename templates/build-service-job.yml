@@ -286,6 +286,8 @@ jobs:
     name: PrepareSbomGeneratorManifest
     displayName: '5a. Prepare SBOM Generator Pod Manifest'
     condition: succeeded()
+    env:
+      AZP_TOKEN: $(System.AccessToken)
     inputs:
       targetType: 'inline'
       script: |
@@ -299,8 +301,8 @@ jobs:
         sed -i "s|__GIT_REPO_URL__|$(gitRepoUrl)|g" "$(kanikoFinalFile)-sbom-${{ parameters.serviceName }}" # Bu satır orjinal şablonda vardı, tekrar kontrol edilmeli
         sed -i "s|__AZP_TOKEN__|$(System.AccessToken)|g" "$(kanikoFinalFile)-sbom-${{ parameters.serviceName }}"
         sed -i "s|__CONTEXT_SUB_PATH_RELATIVE__|${{ parameters.serviceName }}|g" "$(kanikoFinalFile)-sbom-${{ parameters.serviceName }}"
-        sed -i "s|__NEXUS_USERNAME__|$(NEXUS_USERNAME)|g" "$(kanikoFinalFile)-sbom-${{ parameters.serviceName }}"
-        sed -i "s|__NEXUS_PASSWORD__|$(NEXUS_PASSWORD)|g" "$(kanikoFinalFile)-sbom-${{ parameters.serviceName }}"
+        sed -i "s|__NEXUS_USERNAME__|$(NexusUsername)|g" "$(kanikoFinalFile)-sbom-${{ parameters.serviceName }}"
+        sed -i "s|__NEXUS_PASSWORD__|$(NexusPassword)|g" "$(kanikoFinalFile)-sbom-${{ parameters.serviceName }}"
         sed -i "s|__SERVICE_NAME__|${{ parameters.serviceName }}|g" "$(kanikoFinalFile)-sbom-${{ parameters.serviceName }}"
 
   - task: Kubernetes@1
