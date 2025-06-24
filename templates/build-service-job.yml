@@ -315,32 +315,30 @@ jobs:
       targetType: 'inline'
       script: |
         set -ex
-        echo "Waiting for pod $(sbomPodName) to be Ready or terminate..."; 
-        kubectl wait --for=condition=Ready pod/$(sbomPodName) --timeout=2m -n $(k8sNamespace) || true # Timeout'u beklemeden devam et
+
+        # Pod'un 'Succeeded' veya 'Failed' durumuna geçmesini bekle
+        echo "Waiting for pod $(sbomPodName) to complete..."
+        kubectl wait --for=condition=ContainersReady pod/$(sbomPodName) --timeout=2m -n $(k8sNamespace)
         
-        POD_LOGS=$(kubectl logs $(sbomPodName) -n $(k8sNamespace) --all-containers)
-        echo "$POD_LOGS" # Logları pipeline çıktısına yazdır
-
-        EXIT_CODE=$(kubectl get pod $(sbomPodName) -n $(k8sNamespace) -o jsonpath='{.status.containerStatuses[?(@.name=="generator")].state.terminated.exitCode}')
+        # Logları al (özellikle uploader'dan gelenler önemli)
+        echo "--- Generator Logs ---"
+        kubectl logs $(sbomPodName) -n $(k8sNamespace) -c generator --tail=100
+        echo "--- Uploader Logs ---"
+        kubectl logs $(sbomPodName) -n $(k8sNamespace) -c uploader --tail=100 --follow
+        
+        # Pod'un son durumunu kontrol et
         POD_STATUS=$(kubectl get pod $(sbomPodName) -n $(k8sNamespace) -o jsonpath='{.status.phase}')
+        echo "Pod final status is: $POD_STATUS"
 
-        echo "SBOM Generator Pod final status: $POD_STATUS"
-        echo "SBOM Generator container exit code: ${EXIT_CODE:-N/A}"
-
-        if [ "$POD_STATUS" == "Failed" ]; then
-            echo "##vso[task.logissue type=error;]SBOM Generator Pod failed. Check logs for details."
-            exit 1
-        elif [ "$EXIT_CODE" -ne 0 ]; then
-            echo "##vso[task.logissue type=error;]SBOM Generator Pod (generator container) failed with exit code: $EXIT_CODE"
-            exit 1
-        # SBOM özelinde başarısızlık mesajı arayabilirsin (örn: "SBOM creation failed", "Error generating SPDX")
-        elif echo "$POD_LOGS" | grep -qi "error generating\|sbom creation failed"; then # 'qi' case-insensitive ve quiet
-            echo "##vso[task.logissue type=error;]SBOM Generation failed due to an error in the pod logs."
-            exit 1
-        else
-            echo "SBOM Generator Pod completed successfully."
+        if [ "$POD_STATUS" != "Succeeded" ]; then
+          echo "##vso[task.logissue type=error;]SBOM Pod did not succeed. Final status: $POD_STATUS"
+          # Başarısız konteynerin çıkış kodunu ve logunu göster
+          FAILED_CONTAINER_INFO=$(kubectl get po $(sbomPodName) -n $(k8sNamespace) -o json | jq -r '.status.containerStatuses[] | select(.state.terminated.reason != "Completed") | "Container \(.name) failed with exit code \(.state.terminated.exitCode)"')
+          echo "$FAILED_CONTAINER_INFO"
+          exit 1
         fi
-    condition: succeeded()
+
+        echo "SBOM Pod completed successfully."
 
   - task: Kubernetes@1
     displayName: '5d. Cleanup SBOM Generator Pod'

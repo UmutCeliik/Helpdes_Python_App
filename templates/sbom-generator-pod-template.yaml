@@ -1,4 +1,4 @@
-# templates/sbom-generator-pod-template.yaml
+# templates/sbom-generator-pod-template.yaml (NİHAİ - Sidecar Modeli)
 apiVersion: v1
 kind: Pod
 metadata:
@@ -9,6 +9,14 @@ metadata:
 spec:
   restartPolicy: Never
   serviceAccountName: ado-agent-sa
+  
+  # YETKİ SORUNUNU ÇÖZMEK İÇİN fsGroup'u GERİ GETİRİYORUZ.
+  # Bu, root olmayan 'generator' konteynerinin, root olan 'initContainer'
+  # tarafından oluşturulan klasöre yazabilmesini sağlar.
+  securityContext:
+    fsGroup: 1001
+
+  # 1. Init Container: Sadece kaynak kodu klonlar.
   initContainers:
   - name: git-cloner
     image: alpine/git:latest
@@ -17,7 +25,7 @@ spec:
     - |
       set -ex
       GIT_REPO_URL_WITH_TOKEN=$(echo "__GIT_REPO_URL__" | sed "s,https://,https://__AZP_TOKEN__@,")
-      echo "Cloning repository from __GIT_REPO_URL__ into /workspace/source..."
+      echo "Cloning repository into /workspace/source..."
       git clone "$GIT_REPO_URL_WITH_TOKEN" /workspace/source
       echo "Source code cloned successfully."
     env:
@@ -29,64 +37,63 @@ spec:
     - name: work-volume
       mountPath: /workspace
 
-  # 2. Ana Container: SBOM oluşturur ve yükler
+  # 2. Ana Konteynerler: Biri SBOM oluşturur, diğeri yükler.
   containers:
+  # Konteyner 1: SADECE SBOM OLUŞTURUR
   - name: generator
-    image: cyclonedx/cyclonedx-python:latest
+    image: cyclonedx/cyclonedx-python:latest # Official imajı kullanıyoruz
     workingDir: /workspace/source/__CONTEXT_SUB_PATH_RELATIVE__/
     command: ["/bin/bash", "-c"]
-    env:
-    - name: NEXUS_USERNAME
-      value: __NEXUS_USERNAME__
-    - name: NEXUS_PASSWORD
-      value: __NEXUS_PASSWORD__
-    - name: NEXUS_URL
-      value: "http://nexus-repository-manager.nexus:8081"
-    - name: SERVICE_NAME
-      value: __SERVICE_NAME__
-    - name: CONTEXT_SUB_PATH_RELATIVE
-      value: __CONTEXT_SUB_PATH_RELATIVE__
-    volumeMounts:
-    - name: work-volume
-      mountPath: /workspace
     args:
     - |
       set -ex
-      echo "Installing curl..."
-      apt-get update && apt-get install -y curl
-      echo "Generating SBOM for $SERVICE_NAME..."
+      echo ">>> Generating SBOM file..."
+      # Komutun en son bulduğumuz doğru hali
+      cyclonedx-py requirements requirements.txt -o /workspace/sbom.json
 
-      if [[ "$SERVICE_NAME" == "user_service" || "$SERVICE_NAME" == "ticket_service" ]]; then
-        cyclonedx-py requirements requirements.txt -o sbom.json
-      elif [[ "$SERVICE_NAME" == "frontend" ]]; then
-        echo "Skipping SBOM for frontend service."
-        exit 0
-      else
-        echo "Unknown service type: $SERVICE_NAME. Skipping SBOM generation."
-        exit 0
-      fi
+      # Yükleyicinin başlaması için "işlem tamam" dosyası oluştur
+      touch /workspace/generator.done
+      echo ">>> SBOM generation complete. 'generator.done' flag created."
+    volumeMounts:
+    - name: work-volume
+      mountPath: /workspace
 
-      echo "--- Generated SBOM Preview ---"
-      head -n 10 sbom.json
-      echo "----------------------------"
-
-      # SBOM dosyasını Nexus'a yüklemek için benzersiz bir isimle yeniden adlandır
-      SBOM_FILE="sbom-$(date +%s)-$SERVICE_NAME.json"
+  # Konteyner 2 (Sidecar): SADECE DOSYAYI YÜKLER
+  - name: uploader
+    image: curlimages/curl:latest # İçinde sadece curl olan hafif bir imaj
+    workingDir: /workspace/
+    command: ["/bin/sh", "-c"]
+    args:
+    - |
+      set -ex
+      echo ">>> Uploader waiting for SBOM file..."
+      
+      # 'generator.done' dosyası oluşana kadar bekle
+      while [ ! -f /workspace/generator.done ]; do
+        sleep 2
+      done
+      
+      echo ">>> SBOM file found. Preparing to upload..."
+      SBOM_FILE="sbom-$(date +%s)-__SERVICE_NAME__.json"
       mv sbom.json "$SBOM_FILE"
 
-      echo "Uploading SBOM '$SBOM_FILE' to Nexus Raw repository..."
-      # curl komutunun başarılı olup olmadığını kontrol et
-      if ! curl -v -u "$NEXUS_USERNAME:$NEXUS_PASSWORD" \
+      echo ">>> Uploading $SBOM_FILE to Nexus..."
+      # Curl komutu 'v' (verbose) ve 'S' (silent-on-success) flag'leri ile çalıştırılıyor
+      # Çıktı, hata ayıklama için tee ile hem konsola hem dosyaya yazdırılıyor
+      if ! curl -vS --fail -u "__NEXUS_USERNAME__:__NEXUS_PASSWORD__" \
           --upload-file "$SBOM_FILE" \
-          "$NEXUS_URL/repository/sbom-reports/$SBOM_FILE" 2>&1 | tee curl_sbom_output.log; then
-          echo "ERROR: SBOM upload failed. See curl_sbom_output.log above for details."
-          echo "##vso[task.logissue type=error;]SBOM upload operation failed."
-          exit 1
+          "http://nexus-repository-manager.nexus:8081/repository/sbom-reports/$SBOM_FILE" 2>&1 | tee /workspace/curl_output.log; then
+        echo "!!! SBOM UPLOAD FAILED !!!"
+        cat /workspace/curl_output.log
+        exit 1
       fi
-      cat curl_sbom_output.log
-      echo "SBOM uploaded to Nexus successfully."
 
-      exec sleep 5
+      echo ">>> SBOM upload successful!"
+    volumeMounts:
+    - name: work-volume
+      mountPath: /workspace
+      
+  # Konteynerlerin paylaştığı disk
   volumes:
   - name: work-volume
     emptyDir: {}
