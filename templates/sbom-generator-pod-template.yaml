@@ -60,12 +60,7 @@ spec:
 
       # Python servisleri için SBOM oluşturma
       if [[ "$SERVICE_NAME" == "user_service" || "$SERVICE_NAME" == "ticket_service" ]]; then
-        # --- GÜNCELLENMİŞ KOMUT ---
-        # `cyclonedx-py` komutu, bu imajın ana aracıdır.
-        # `-r` bayrağı, `requirements.txt` dosyasını okuyup bağımlılıkları analiz etmesini sağlar.
-        # `-o` bayrağı ile çıktıyı JSON formatında belirtilen dosyaya yazar.
-        cyclonedx-py -r -o sbom.json
-        # ------------------------
+        cyclonedx-py **requirements** -r requirements.txt -o sbom.json
       elif [[ "$SERVICE_NAME" == "frontend" ]]; then
         echo "Skipping SBOM for frontend service."
         exit 0

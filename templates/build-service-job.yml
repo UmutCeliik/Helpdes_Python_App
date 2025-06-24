@@ -213,7 +213,7 @@ jobs:
         echo "Publisher pod has finished (or timed out). Getting logs and checking exit code..."
         
         # Tüm logları çek ve bunları bir değişkene kaydet
-        POD_LOGS=$(kubectl logs $(nexusPublisherPodName) -n $(k8sNamespace) --all-containers)
+        POD_LOGS=$(kubectl logs $(nexusPublisherPodName) -n $(k8sNamespace) -c publisher)
         echo "$POD_LOGS" # Logları pipeline çıktısına yazdır
         
         # "publisher" konteynerinin çıkış kodunu kontrol et
