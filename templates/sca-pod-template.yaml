@@ -1,5 +1,4 @@
 # templates/sca-pod-template.yaml
-# Dosya yapısını loglamak için hata ayıklama komutları eklendi.
 
 apiVersion: v1
 kind: Pod
@@ -28,18 +27,26 @@ spec:
     volumeMounts:
     - name: workspace
       mountPath: /workspace
-
+      
   containers:
   - name: scanner
     image: __SCANNER_IMAGE__
     workingDir: /workspace/__CONTEXT_SUB_PATH__
     command: ["/bin/sh", "-c"]
+    
+    env:
+    - name: PIP_INDEX_URL
+      value: "__NEXUS_URL_WITH_CREDS__"
+    - name: PIP_TRUSTED_HOST
+      value: "__NEXUS_HOST__"
+    - name: SERVICE_TYPE
+      value: "__SERVICE_TYPE__"
+      
     args:
     - |
       set -e
-      # echo "--- DEBUG: Contents of /workspace after git-checkout ---"
-      # ls -lR /workspace # /workspace altındaki her şeyi recursive listeler
-      # echo "--------------------------------------------------------"
+      
+      echo ">>> SCA: Using pip index URL: $PIP_INDEX_URL"
 
       echo "SCA Scan starting for service type: $SERVICE_TYPE"
       if [ "$SERVICE_TYPE" = "frontend" ]; then
@@ -53,10 +60,6 @@ spec:
         pip-audit
       fi
     
-    env:
-    - name: SERVICE_TYPE
-      value: "__SERVICE_TYPE__"
-
     volumeMounts:
     - name: workspace
       mountPath: /workspace

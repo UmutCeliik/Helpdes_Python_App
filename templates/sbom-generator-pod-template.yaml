@@ -1,4 +1,4 @@
-# templates/sbom-generator-pod-template.yaml (NİHAİ - Sidecar Modeli)
+# templates/sbom-generator-pod-template.yaml
 apiVersion: v1
 kind: Pod
 metadata:
@@ -9,10 +9,6 @@ metadata:
 spec:
   restartPolicy: Never
   serviceAccountName: ado-agent-sa
-  
-  # YETKİ SORUNUNU ÇÖZMEK İÇİN fsGroup'u GERİ GETİRİYORUZ.
-  # Bu, root olmayan 'generator' konteynerinin, root olan 'initContainer'
-  # tarafından oluşturulan klasöre yazabilmesini sağlar.
   securityContext:
     fsGroup: 1001
 
@@ -39,7 +35,6 @@ spec:
 
   # 2. Ana Konteynerler: Biri SBOM oluşturur, diğeri yükler.
   containers:
-  # Konteyner 1: SADECE SBOM OLUŞTURUR
   - name: generator
     image: cyclonedx/cyclonedx-python:latest # Official imajı kullanıyoruz
     workingDir: /workspace/source/__CONTEXT_SUB_PATH_RELATIVE__/
@@ -60,7 +55,7 @@ spec:
 
   # Konteyner 2 (Sidecar): SADECE DOSYAYI YÜKLER
   - name: uploader
-    image: curlimages/curl:latest # İçinde sadece curl olan hafif bir imaj
+    image: curlimages/curl:latest
     workingDir: /workspace/
     command: ["/bin/sh", "-c"]
     args:
