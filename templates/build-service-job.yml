@@ -201,38 +201,34 @@ jobs:
       script: |
         set -ex
         
-        # Pod'un genel olarak sonlanmasını bekle (Completed veya Failed olabilir)
-        # Pod Terminated olduğunda bu komut hemen geri dönecektir, timeout maksimum süredir.
-        # Kubernetes, bir konteyner Error ile biterse pod'u Failed olarak işaretler.
-        kubectl wait --for=condition=Ready pod/$(nexusPublisherPodName) --timeout=3m -n $(k8sNamespace) || true
-        # Neden "Ready" bekliyoruz? Çünkü "Ready" durumuna gelince (yani çalışmaya başlayınca) genelde ya hemen işini bitirir ya da hata verir.
-        # "Completed" veya "Failed" gibi son durumları doğrudan beklemek, Kubernetes'in iç durum güncellemelerinde yaşanan küçük gecikmeler nedeniyle yanıltıcı olabilir.
-        # Ayrıca, pod hatalı bir şekilde bile olsa başlatılamazsa (ImagePullBackOff vb.) "Ready" durumuna asla gelmez, bu da timeout'a neden olur.
-        # "|| true" ekledik çünkü "kubectl wait" bir hata dönerse (örn. timeout) scripti durdurmasın, biz manuel kontrol edeceğiz.
+        # "publisher" konteynerinin Terminated olmasını bekle (başarılı veya hatalı bitebilir)
+        # Eğer konteyner 3 dakika içinde Terminated olmazsa, bu komut zaman aşımına uğrar.
+        kubectl wait --for=jsonpath='{.status.containerStatuses[?(@.name=="publisher")].state.terminated}' \
+          pod/$(nexusPublisherPodName) --timeout=3m -n $(k8sNamespace) || true
         
-        echo "Publisher pod has finished (or timed out). Getting logs and checking exit code..."
+        echo "Publisher container (possibly) terminated. Getting logs and checking exit code..."
         
-        # Tüm logları çek ve bunları bir değişkene kaydet
+        # Sadece publisher konteynerinin loglarını çek
         POD_LOGS=$(kubectl logs $(nexusPublisherPodName) -n $(k8sNamespace) -c publisher)
         echo "$POD_LOGS" # Logları pipeline çıktısına yazdır
         
         # "publisher" konteynerinin çıkış kodunu kontrol et
-        # Eğer konteyner Terminated durumunda değilse (örneğin hala Running veya bekliyor), bu komut boş dönebilir.
-        # Bu yüzden pod'un genel durumunu da kontrol etmek önemlidir.
         EXIT_CODE=$(kubectl get pod $(nexusPublisherPodName) -n $(k8sNamespace) -o jsonpath='{.status.containerStatuses[?(@.name=="publisher")].state.terminated.exitCode}')
         POD_STATUS=$(kubectl get pod $(nexusPublisherPodName) -n $(k8sNamespace) -o jsonpath='{.status.phase}')
 
         echo "Pod final status: $POD_STATUS"
-        echo "Publisher container exit code: ${EXIT_CODE:-N/A}" # EXIT_CODE boşsa N/A göster
+        echo "Publisher container exit code: ${EXIT_CODE:-N/A}"
 
-        # Eğer pod durumu "Failed" ise veya ana konteynerin exit kodu 0 değilse, hata ver
         if [ "$POD_STATUS" == "Failed" ]; then
             echo "##vso[task.logissue type=error;]Nexus Publisher Pod failed. Check logs for details."
             exit 1
         elif [ "$EXIT_CODE" -ne 0 ]; then
-            # Pod Failed olmasa bile konteyner hatayla çıkmış olabilir (daha az olası)
             echo "##vso[task.logissue type=error;]Nexus Publisher Pod (publisher container) failed with exit code: $EXIT_CODE"
             exit 1
+        # Twine'ın hata mesajını loglarda ara
+        elif echo "$POD_LOGS" | grep -qi "error.*repository does not allow updating assets\|http.*bad request\|error during upload"; then
+          echo "##vso[task.logissue type=error;]Nexus Publisher Pod failed: Twine upload error detected in logs."
+          exit 1
         else
             echo "Nexus Publisher Pod completed successfully."
         fi
@@ -288,6 +284,8 @@ jobs:
     condition: succeeded()
     env:
       AZP_TOKEN: $(System.AccessToken)
+      NEXUS_USERNAME: $(NexusUsername) # BURAYI KONTROL ET!
+      NEXUS_PASSWORD: $(NexusPassword) # BURAYI KONTROL ET!
     inputs:
       targetType: 'inline'
       script: |
@@ -301,8 +299,8 @@ jobs:
         sed -i "s|__GIT_REPO_URL__|$(gitRepoUrl)|g" "$(kanikoFinalFile)-sbom-${{ parameters.serviceName }}" # Bu satır orjinal şablonda vardı, tekrar kontrol edilmeli
         sed -i "s|__AZP_TOKEN__|$(System.AccessToken)|g" "$(kanikoFinalFile)-sbom-${{ parameters.serviceName }}"
         sed -i "s|__CONTEXT_SUB_PATH_RELATIVE__|${{ parameters.serviceName }}|g" "$(kanikoFinalFile)-sbom-${{ parameters.serviceName }}"
-        sed -i "s|__NEXUS_USERNAME__|$(NexusUsername)|g" "$(kanikoFinalFile)-sbom-${{ parameters.serviceName }}"
-        sed -i "s|__NEXUS_PASSWORD__|$(NexusPassword)|g" "$(kanikoFinalFile)-sbom-${{ parameters.serviceName }}"
+        sed -i "s|__NEXUS_USERNAME__|$(NEXUS_USERNAME)|g" "$(kanikoFinalFile)-sbom-${{ parameters.serviceName }}"
+        sed -i "s|__NEXUS_PASSWORD__|$(NEXUS_PASSWORD)|g" "$(kanikoFinalFile)-sbom-${{ parameters.serviceName }}"
         sed -i "s|__SERVICE_NAME__|${{ parameters.serviceName }}|g" "$(kanikoFinalFile)-sbom-${{ parameters.serviceName }}"
 
   - task: Kubernetes@1

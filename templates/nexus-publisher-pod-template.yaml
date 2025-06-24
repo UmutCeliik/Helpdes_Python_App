@@ -52,22 +52,35 @@ spec:
       mountPath: /workspace
     command: ["/bin/bash", "-c"]
     args:
-    - |
-      set -ex
-      cd "/workspace/source/$CONTEXT_SUB_PATH_RELATIVE/"
-      echo "--- Current Directory: $(pwd) ---"
-      echo "Updating version in setup.py to '$PACKAGE_VERSION'"
-      sed -i "s/version=['\"].*['\"]/version='$PACKAGE_VERSION'/" setup.py
-      echo "--- Installing build tools ---"
-      pip install --no-cache-dir --index-url "$PYPI_GROUP_URL" --trusted-host "$NEXUS_HOST" wheel twine
-      echo "--- Building the package ---"
-      python setup.py sdist bdist_wheel
-      echo "--- Publishing to Nexus ---"
-      # Twine'ın kullanacağı ortam değişkenlerini ayarla
-      export TWINE_USERNAME="$NEXUS_USERNAME"
-      export TWINE_PASSWORD="$NEXUS_PASSWORD"
-      twine upload --repository-url "$TARGET_REPO_URL" dist/*
-      echo "Artifacts published successfully."
+      - |
+        set -ex
+        cd "/workspace/source/$CONTEXT_SUB_PATH_RELATIVE/"
+        echo "--- Current Directory: $(pwd) ---"
+        echo "Updating version in setup.py to '$PACKAGE_VERSION'"
+        sed -i "s/version=['\"].*['\"]/version='$PACKAGE_VERSION'/" setup.py
+        echo "--- Installing build tools ---"
+        pip install --no-cache-dir --index-url "$PYPI_GROUP_URL" --trusted-host "$NEXUS_HOST" wheel twine
+        echo "--- Building the package ---"
+        python setup.py sdist bdist_wheel
+        echo "--- Publishing to Nexus ---"
+        export TWINE_USERNAME="$NEXUS_USERNAME"
+        export TWINE_PASSWORD="$NEXUS_PASSWORD"
+
+        # Twine çıktısını bir dosyaya yönlendir ve bu dosyayı oku
+        # twine upload komutunun exit code'u 0 değilse, exit 1 ile shell'i durdur.
+        if ! twine upload --repository-url "$TARGET_REPO_URL" dist/* 2>&1 | tee twine_output.log; then
+            echo "ERROR: Twine upload failed. See twine_output.log above for details."
+            # Logu pipeline'a hata olarak işaretle
+            echo "##vso[task.logissue type=error;]Twine upload operation failed."
+            exit 1
+        fi
+
+        # Başarılı olursa log dosyasını da göster
+        cat twine_output.log
+        echo "Artifacts published successfully."
+
+        # Konteynerin doğru şekilde kapanmasını sağla
+        **exec sleep 5** # Küçük bir bekleme süresi ve ardından exec ile konteynerin kapanmasını bekle
   volumes:
   - name: work-volume
     emptyDir: {}

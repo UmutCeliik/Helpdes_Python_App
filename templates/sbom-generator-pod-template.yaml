@@ -55,11 +55,11 @@ spec:
       mountPath: /workspace
     args:
     - |
-      set -ex # Hata durumunda çık ve komutları logla
+      set -ex
       echo "Generating SBOM for $SERVICE_NAME using official cyclonedx/cyclonedx-python image..."
 
-      # Python servisleri için SBOM oluşturma
       if [[ "$SERVICE_NAME" == "user_service" || "$SERVICE_NAME" == "ticket_service" ]]; then
+        # Düzeltilmiş cyclonedx-py komutu
         cyclonedx-py **requirements** -r requirements.txt -o sbom.json
       elif [[ "$SERVICE_NAME" == "frontend" ]]; then
         echo "Skipping SBOM for frontend service."
@@ -69,12 +69,7 @@ spec:
         exit 0
       fi
 
-      # Oluşturulan SBOM'u kontrol et
-      if [ ! -s sbom.json ]; then
-          echo "ERROR: SBOM generation failed, sbom.json is empty or not created."
-          exit 1
-      fi
-      
+      # ... (geri kalan script aynı) ...
       echo "--- Generated SBOM Preview ---"
       head -n 10 sbom.json
       echo "----------------------------"
@@ -84,10 +79,18 @@ spec:
       mv sbom.json "$SBOM_FILE"
 
       echo "Uploading SBOM '$SBOM_FILE' to Nexus Raw repository..."
-      curl -v -u "$NEXUS_USERNAME:$NEXUS_PASSWORD" \
-           --upload-file "$SBOM_FILE" \
-           "$NEXUS_URL/repository/sbom-reports/$SBOM_FILE"
+      # curl komutunun başarılı olup olmadığını kontrol et
+      if ! curl -v -u "$NEXUS_USERNAME:$NEXUS_PASSWORD" \
+          --upload-file "$SBOM_FILE" \
+          "$NEXUS_URL/repository/sbom-reports/$SBOM_FILE" 2>&1 | tee curl_sbom_output.log; then
+          echo "ERROR: SBOM upload failed. See curl_sbom_output.log above for details."
+          echo "##vso[task.logissue type=error;]SBOM upload operation failed."
+          exit 1
+      fi
+      cat curl_sbom_output.log
       echo "SBOM uploaded to Nexus successfully."
+
+      **exec sleep 5** # Konteynerin doğru şekilde kapanmasını sağla
   volumes:
   - name: work-volume
     emptyDir: {}
