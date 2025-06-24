@@ -60,9 +60,12 @@ spec:
       - "--dockerfile=/workspace/source/__CONTEXT_SUB_PATH__/Dockerfile" # Dockerfile'ın tam yolu
       - "--destination=__DESTINATION_TAG__" # Oluşturulan imajın gönderileceği hedef registry/repo/tag
       - "--cleanup" # İmaj oluşturulduktan sonra önbelleği temizle
-      - "--skip-tls-verify" # TLS doğrulamasını atla (çekme ve itme işlemleri için).
-                            # Güvenli ortamlar için dikkatli kullanılmalıdır, genellikle özel CA sertifikası kullanılır.
-
+      - "--skip-tls-verify"
+    env:
+    - name: PIP_INDEX_URL
+      value: "http://$(NEXUS_USERNAME):$(NEXUS_PASSWORD)@$(NEXUS_HOST):8081/repository/helpdesk-pypi-all/simple/"
+    - name: PIP_TRUSTED_HOST
+      value: "$(NEXUS_HOST)"
     volumeMounts:
     - name: workspace
       mountPath: /workspace # Kaynak kodunun olduğu dizin
