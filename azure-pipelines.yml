@@ -1,10 +1,7 @@
 # azure-pipelines.yml
 trigger:
   branches:
-    include:
-      - main
-      - feature/nexus
-      - nexusplus
+    include: [ main, feature/*, develop ]
   paths:
     include: ['user_service/*', 'ticket_service/*', 'auth_service/*', 'frontend/*']
     exclude: [README.md]

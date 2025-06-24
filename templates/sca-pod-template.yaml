@@ -57,7 +57,7 @@ spec:
         echo "Running Python SCA Scan..."
         python -m pip install -r requirements.txt
         python -m pip install pip-audit
-        pip-audit
+        pip-audit --fail-on high
       fi
     
     volumeMounts:
