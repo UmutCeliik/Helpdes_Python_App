@@ -9,15 +9,17 @@ metadata:
 spec:
   restartPolicy: Never
   serviceAccountName: ado-agent-sa
+  securityContext:
+    runAsUser: 1001
+    runAsGroup: 1001 
+    fsGroup: 1001
   initContainers:
-  # 1. Init Container: Git deposunu klonlar
   - name: git-cloner
     image: alpine/git:latest
     command: ["/bin/sh", "-c"]
     args:
     - |
-      set -ex # Hata durumunda çık ve komutları logla
-      # Klonlama işlemi için token'ı URL'ye ekliyoruz.
+      set -ex
       GIT_REPO_URL_WITH_TOKEN=$(echo "__GIT_REPO_URL__" | sed "s,https://,https://__AZP_TOKEN__@,")
       echo "Cloning repository from __GIT_REPO_URL__ into /workspace/source..."
       git clone "$GIT_REPO_URL_WITH_TOKEN" /workspace/source
@@ -53,12 +55,10 @@ spec:
       mountPath: /workspace
     args:
     - |
-      chmod -R 777 . || true
       set -ex
-      echo "Generating SBOM for $SERVICE_NAME using official cyclonedx/cyclonedx-python image..."
+      echo "Generating SBOM for $SERVICE_NAME..."
 
       if [[ "$SERVICE_NAME" == "user_service" || "$SERVICE_NAME" == "ticket_service" ]]; then
-        # Düzeltilmiş cyclonedx-py komutu
         cyclonedx-py requirements -r requirements.txt -o sbom.json
       elif [[ "$SERVICE_NAME" == "frontend" ]]; then
         echo "Skipping SBOM for frontend service."

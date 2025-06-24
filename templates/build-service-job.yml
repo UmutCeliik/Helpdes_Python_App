@@ -284,8 +284,8 @@ jobs:
     condition: succeeded()
     env:
       AZP_TOKEN: $(System.AccessToken)
-      NEXUS_USERNAME: $(NexusUsername) # BURAYI KONTROL ET!
-      NEXUS_PASSWORD: $(NexusPassword) # BURAYI KONTROL ET!
+      NEXUS_USERNAME: $(NexusUsername)
+      NEXUS_PASSWORD: $(NexusPassword)
     inputs:
       targetType: 'inline'
       script: |
