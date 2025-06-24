@@ -311,34 +311,50 @@ jobs:
   - task: Bash@3
     name: WaitAndGetSbomLogs
     displayName: '5c. Wait for SBOM Generator Pod & Get Logs'
+    condition: succeeded()
     inputs:
       targetType: 'inline'
       script: |
+        # Hata durumunda script'i anında durdur ve komutları logla
         set -ex
 
-        # Pod'un 'Succeeded' veya 'Failed' durumuna geçmesini bekle
+        # 1. Pod'un başarıyla tamamlanmasını bekle
+        # 'ContainersReady' yerine, pod'un 'Succeeded' aşamasına gelmesini bekliyoruz.
+        # Bu, kısa süreli işler için doğru bekleme yöntemidir.
         echo "Waiting for pod $(sbomPodName) to complete..."
-        kubectl wait --for=condition=ContainersReady pod/$(sbomPodName) --timeout=2m -n $(k8sNamespace)
+        if ! kubectl wait pod/$(sbomPodName) \
+          --for=jsonpath='{.status.phase}'=Succeeded \
+          --timeout=3m \
+          -n $(k8sNamespace); then
+          
+          echo "##[error]Pod $(sbomPodName) did not succeed within the timeout."
+          echo "--- Final Pod Status ---"
+          kubectl get pod $(sbomPodName) -n $(k8sNamespace) -o wide
+          echo "--- Pod Description ---"
+          kubectl describe pod $(sbomPodName) -n $(k8sNamespace)
+          echo "--- All Container Logs ---"
+          kubectl logs $(sbomPodName) -n $(k8sNamespace) --all-containers --tail=100
+          exit 1
+        fi
         
-        # Logları al (özellikle uploader'dan gelenler önemli)
-        echo "--- Generator Logs ---"
-        kubectl logs $(sbomPodName) -n $(k8sNamespace) -c generator --tail=100
-        echo "--- Uploader Logs ---"
-        kubectl logs $(sbomPodName) -n $(k8sNamespace) -c uploader --tail=100 --follow
+        # 2. Pod başarıyla tamamlandıysa logları al
+        echo "Pod completed successfully. Fetching logs for verification..."
         
-        # Pod'un son durumunu kontrol et
-        POD_STATUS=$(kubectl get pod $(sbomPodName) -n $(k8sNamespace) -o jsonpath='{.status.phase}')
-        echo "Pod final status is: $POD_STATUS"
-
-        if [ "$POD_STATUS" != "Succeeded" ]; then
-          echo "##vso[task.logissue type=error;]SBOM Pod did not succeed. Final status: $POD_STATUS"
-          # Başarısız konteynerin çıkış kodunu ve logunu göster
-          FAILED_CONTAINER_INFO=$(kubectl get po $(sbomPodName) -n $(k8sNamespace) -o json | jq -r '.status.containerStatuses[] | select(.state.terminated.reason != "Completed") | "Container \(.name) failed with exit code \(.state.terminated.exitCode)"')
-          echo "$FAILED_CONTAINER_INFO"
+        echo "--- Generator Container Logs ---"
+        kubectl logs $(sbomPodName) -n $(k8sNamespace) -c generator
+        
+        echo "--- Uploader Container Logs ---"
+        kubectl logs $(sbomPodName) -n $(k8sNamespace) -c uploader
+        
+        # 3. Son bir doğrulama yap (İsteğe bağlı ama önerilir)
+        UPLOADER_EXIT_CODE=$(kubectl get pod $(sbomPodName) -n $(k8sNamespace) -o jsonpath='{.status.containerStatuses[?(@.name=="uploader")].state.terminated.exitCode}')
+        
+        if [ "$UPLOADER_EXIT_CODE" -ne 0 ]; then
+          echo "##[error]Uploader container failed with a non-zero exit code: $UPLOADER_EXIT_CODE"
           exit 1
         fi
 
-        echo "SBOM Pod completed successfully."
+        echo "SBOM Generation and Upload process successfully verified."
 
   - task: Kubernetes@1
     displayName: '5d. Cleanup SBOM Generator Pod'
