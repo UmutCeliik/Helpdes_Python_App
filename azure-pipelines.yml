@@ -4,6 +4,7 @@ trigger:
     include:
       - main
       - feature/nexus
+      - nexusplus
   paths:
     include: ['user_service/*', 'ticket_service/*', 'auth_service/*', 'frontend/*']
     exclude: [README.md]
