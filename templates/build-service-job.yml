@@ -281,7 +281,7 @@ jobs:
         else
             echo "Nexus Publisher Pod completed successfully."
         fi
-    condition: and(succeeded(), in(variables['serviceName'], 'user_service', 'ticket_service'), eq(variables['sonar_status'], 'OK'))
+    condition: and(succeeded(), in(variables['serviceName'], 'user_service', 'ticket_service', 'frontend'), eq(variables['sonar_status'], 'OK'))
 
   - task: Kubernetes@1
     displayName: '3d. Cleanup Nexus Publisher Pod'

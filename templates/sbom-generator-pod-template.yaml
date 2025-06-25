@@ -35,8 +35,7 @@ spec:
 
   containers:
   - name: generator
-    # DİKKAT: İmaj burada dinamik olarak ayarlanacak
-    image: __SCANNER_IMAGE__ # Örn: node:20-slim veya python:3.11-slim
+    image: __SCANNER_IMAGE__
     workingDir: /workspace/source/__CONTEXT_SUB_PATH_RELATIVE__/
     command: ["/bin/sh", "-c"]
     args:
@@ -44,32 +43,40 @@ spec:
       set -ex
       echo ">>> Preparing environment for SBOM generation..."
       
-      # 1. Adım: Proje tipine göre bağımlılıkları kur
       if [ "__SERVICE_TYPE__" = "frontend" ]; then
         echo ">>> Installing npm dependencies from Nexus..."
+        
+        # --- YENİ EKLENEN ADIM: .npmrc OLUŞTURMA ---
+        # Nexus registry URL'sini ve kimlik bilgilerini .npmrc dosyasına yaz.
+        # 1. Registry'yi ayarla
         npm config set registry "__NPM_GROUP_URL__"
+        # 2. Registry için Base64 formatında bir auth token oluştur ve .npmrc'ye ekle
+        # Not: echo -n komutu sona newline karakteri eklenmesini önler.
+        AUTH_TOKEN=$(echo -n "__NEXUS_USERNAME__:__NEXUS_PASSWORD__" | base64)
+        echo "_auth=$AUTH_TOKEN" >> ./.npmrc
+        echo "always-auth=true" >> ./.npmrc
+        echo ">>> .npmrc file created for Nexus authentication."
+        # --- .NPMRC ADIMI SONU ---
+
         npm install
+
       else
         echo ">>> Installing pip dependencies from Nexus..."
         pip install -r requirements.txt --index-url "__PYPI_GROUP_URL__" --trusted-host "__NEXUS_HOST__"
       fi
-
-      # 2. Adım: SBOM aracını kur
+      
       echo ">>> Installing cyclonedx-cli..."
-      # Frontend ise global olarak, Python ise pip ile kurulur
       if [ "__SERVICE_TYPE__" = "frontend" ]; then
         npm install -g @cyclonedx/cdxgen
       else
         pip install cyclonedx-bom
       fi
       
-      # 3. Adım: SBOM'u oluştur
       echo ">>> Generating SBOM..."
       if [ "__SERVICE_TYPE__" = "frontend" ]; then
-        # Frontend için cdxgen kullanılır
-        cdxgen -o /workspace/sbom.json
+        # cdxgen'i tam yoluyla çalıştırarak PATH sorunlarını önle
+        /usr/local/bin/cdxgen -o /workspace/sbom.json
       else
-        # Python için cyclonedx-py kullanılır
         cyclonedx-py -r -i . -o /workspace/sbom.json
       fi
 
