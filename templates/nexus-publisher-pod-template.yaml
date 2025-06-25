@@ -9,7 +9,7 @@ spec:
   restartPolicy: Never
   serviceAccountName: ado-agent-sa
   
-  iinitContainers:
+  initContainers:
   - name: git-cloner
     image: alpine/git:latest
     command: ["/bin/sh", "-c"]
