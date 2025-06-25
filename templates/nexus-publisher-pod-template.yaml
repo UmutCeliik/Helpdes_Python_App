@@ -69,8 +69,8 @@ spec:
       - |
         set -ex
 
-        cd "/workspace/source/helpdesk-app-src/$CONTEXT_SUB_PATH_RELATIVE/" 
-        echo -n "$CONTEXT_SUB_PATH_RELATIVE"
+        # cd "/workspace/source/$CONTEXT_SUB_PATH_RELATIVE/" 
+        # echo -n "$CONTEXT_SUB_PATH_RELATIVE"
         # if [ "$SERVICE_TYPE" = "frontend" ]; then
         #   # --- FRONTEND YAYINLAMA MANTIĞI ---
         #   echo ">>> Frontend artifact publishing process started."
