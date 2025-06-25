@@ -1,4 +1,4 @@
-# templates/sbom-generator-pod-template.yaml
+# templates/sbom-generator-pod-template.yaml (YENİ - Jenerik ve Dinamik Versiyon)
 apiVersion: v1
 kind: Pod
 metadata:
@@ -12,10 +12,9 @@ spec:
   securityContext:
     fsGroup: 1001
 
-  # 1. Init Container: Sadece kaynak kodu klonlar.
   initContainers:
   - name: git-cloner
-    image: alpine/git:latest
+    image: alpine:3.19 # Versiyon sabitlendi
     command: ["/bin/sh", "-c"]
     args:
     - |
@@ -26,72 +25,64 @@ spec:
       echo "Source code cloned successfully."
     env:
     - name: GIT_REPO_URL
-      value: __GIT_REPO_URL__
+      value: "__GIT_REPO_URL__"
     - name: AZP_TOKEN
-      value: __AZP_TOKEN__
+      value: "__AZP_TOKEN__"
     volumeMounts:
     - name: work-volume
       mountPath: /workspace
 
-  # 2. Ana Konteynerler: Biri SBOM oluşturur, diğeri yükler.
   containers:
+  # Bu konteynerin imajı ve komutu pipeline'dan dinamik olarak gelecek
   - name: generator
-    image: cyclonedx/cyclonedx-python:latest # Official imajı kullanıyoruz
+    image: __SBOM_GENERATOR_IMAGE__
     workingDir: /workspace/source/__CONTEXT_SUB_PATH_RELATIVE__/
     command: ["/bin/bash", "-c"]
     args:
     - |
-      set -ex
-      if [ ! -f "requirements.txt" ]; then
-        echo ">>> No requirements.txt found. Skipping SBOM generation for this service (likely frontend)."
-        touch /workspace/generator.done # Uploader'ın beklemesini bitirmesi için boş done dosyası oluştur
-        exit 0
-      fi
+      __SBOM_GENERATOR_ARGS__
 
-      echo ">>> Generating SBOM file..."
-      cyclonedx-py requirements requirements.txt -o /workspace/sbom.json
-      touch /workspace/generator.done
-      echo ">>> SBOM generation complete. 'generator.done' flag created."
     volumeMounts:
     - name: work-volume
       mountPath: /workspace
 
-  # Konteyner 2 (Sidecar): SADECE DOSYAYI YÜKLER
+  # uploader konteyneri aynı kalıyor, sadece 'generator' işini bitirene kadar bekliyor
   - name: uploader
-    image: curlimages/curl:latest
+    image: curlimages/curl:8.9.0 # Versiyon sabitlendi
     workingDir: /workspace/
     command: ["/bin/sh", "-c"]
     args:
     - |
       set -ex
-      echo ">>> Uploader waiting for SBOM file..."
+      echo ">>> Uploader waiting for generator.done file..."
       
       # 'generator.done' dosyası oluşana kadar bekle
       while [ ! -f /workspace/generator.done ]; do
         sleep 2
       done
       
-      echo ">>> SBOM file found. Preparing to upload..."
-      SBOM_FILE="sbom-$(date +%s)-__SERVICE_NAME__.json"
-      mv sbom.json "$SBOM_FILE"
-
-      echo ">>> Uploading $SBOM_FILE to Nexus..."
-      # Curl komutu 'v' (verbose) ve 'S' (silent-on-success) flag'leri ile çalıştırılıyor
-      # Çıktı, hata ayıklama için tee ile hem konsola hem dosyaya yazdırılıyor
-      if ! curl -vS --fail -u "__NEXUS_USERNAME__:__NEXUS_PASSWORD__" \
-          --upload-file "$SBOM_FILE" \
-          "http://nexus-repository-manager.nexus:8081/repository/sbom-reports/$SBOM_FILE" 2>&1 | tee /workspace/curl_output.log; then
-        echo "!!! SBOM UPLOAD FAILED !!!"
-        cat /workspace/curl_output.log
-        exit 1
+      # Sadece sbom.json varsa yüklemeyi dene
+      if [ -f "/workspace/sbom.json" ]; then
+        echo ">>> SBOM file found. Preparing to upload..."
+        SBOM_FILE="sbom-$(date +%s)-__SERVICE_NAME__.json"
+        mv /workspace/sbom.json "/workspace/$SBOM_FILE"
+        
+        echo ">>> Uploading $SBOM_FILE to Nexus..."
+        if ! curl -vS --fail -u "__NEXUS_USERNAME__:__NEXUS_PASSWORD__" \
+            --upload-file "/workspace/$SBOM_FILE" \
+            "http://nexus-repository-manager.nexus:8081/repository/sbom-reports/$SBOM_FILE"; then
+          echo "!!! SBOM UPLOAD FAILED !!!"
+          exit 1
+        fi
+        echo ">>> SBOM upload successful!"
+      else
+        echo ">>> No sbom.json found. Nothing to upload. Exiting gracefully."
       fi
 
-      echo ">>> SBOM upload successful!"
     volumeMounts:
     - name: work-volume
       mountPath: /workspace
       
-  # Konteynerlerin paylaştığı disk
   volumes:
   - name: work-volume
     emptyDir: {}

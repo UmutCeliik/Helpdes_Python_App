@@ -321,19 +321,48 @@ jobs:
     inputs:
       targetType: 'inline'
       script: |
-        set -e
+        set -ex
         echo "Preparing SBOM Generator manifest for service: ${{ parameters.serviceName }}..."
-        safePodSuffix=$(echo "${{ parameters.serviceName }}" | sed 's/_/-/g'); sbomPodName="sbom-$(Build.BuildId)-$safePodSuffix"; echo "##vso[task.setvariable variable=sbomPodName]$sbomPodName"
-        cp templates/sbom-generator-pod-template.yaml "$(kanikoFinalFile)-sbom-${{ parameters.serviceName }}"
+        
+        # --- Dinamik İmaj ve Komut Belirleme ---
+        if [ "${{ parameters.serviceName }}" == "frontend" ]; then
+          # Frontend (Node.js) için ayarlar
+          SBOM_IMAGE="cyclonedx/cdxgen:9.11.0" # Frontend için resmi cdxgen imajı (versiyon sabitlendi)
+          # Bu imaj, package-lock.json'u okur ve SBOM oluşturur. npm install'a gerek duymaz.
+          SBOM_ARGS="set -ex && echo '>>> cdxgen: Generating SBOM from package-lock.json...' && cdxgen -t node -o /workspace/sbom.json && touch /workspace/generator.done && echo '>>> cdxgen: SBOM generation complete.'"
+        else
+          # Backend (Python) için ayarlar
+          SBOM_IMAGE="cyclonedx/cyclonedx-python:0.15.1" # Python için resmi imaj (versiyon sabitlendi)
+          SBOM_ARGS="set -ex && echo '>>> cyclonedx-py: Generating SBOM from requirements.txt...' && cyclonedx-py requirements requirements.txt -o /workspace/sbom.json && touch /workspace/generator.done && echo '>>> cyclonedx-py: SBOM generation complete.'"
+        fi
+        
+        # Bu değişkenleri sonraki sed komutlarında kullanmak için export ediyoruz.
+        export SBOM_IMAGE
+        export SBOM_ARGS
 
-        GIT_REPO_URL_WITH_TOKEN=$(echo "$(gitRepoUrl)" | sed "s,https://,https://$(System.AccessToken)@,")
-        sed -i "s|__POD_NAME__|$sbomPodName|g" "$(kanikoFinalFile)-sbom-${{ parameters.serviceName }}"
-        sed -i "s|__GIT_REPO_URL__|$(gitRepoUrl)|g" "$(kanikoFinalFile)-sbom-${{ parameters.serviceName }}" # Bu satır orjinal şablonda vardı, tekrar kontrol edilmeli
-        sed -i "s|__AZP_TOKEN__|$(System.AccessToken)|g" "$(kanikoFinalFile)-sbom-${{ parameters.serviceName }}"
-        sed -i "s|__CONTEXT_SUB_PATH_RELATIVE__|${{ parameters.serviceName }}|g" "$(kanikoFinalFile)-sbom-${{ parameters.serviceName }}"
-        sed -i "s|__NEXUS_USERNAME__|$(NexusUsername)|g" "$(kanikoFinalFile)-sbom-${{ parameters.serviceName }}"
-        sed -i "s|__NEXUS_PASSWORD__|$(NexusPassword)|g" "$(kanikoFinalFile)-sbom-${{ parameters.serviceName }}"
-        sed -i "s|__SERVICE_NAME__|${{ parameters.serviceName }}|g" "$(kanikoFinalFile)-sbom-${{ parameters.serviceName }}"
+        # Pod adını ve dosya yolunu hazırla
+        safePodSuffix=$(echo "${{ parameters.serviceName }}" | sed 's/_/-/g')
+        sbomPodName="sbom-$(Build.BuildId)-$safePodSuffix"
+        echo "##vso[task.setvariable variable=sbomPodName]$sbomPodName"
+        
+        finalSbomManifest="$(kanikoFinalFile)-sbom-${{ parameters.serviceName }}"
+        cp templates/sbom-generator-pod-template.yaml "$finalSbomManifest"
+        
+        # Tüm placeholder'ları doldur
+        sed -i "s|__POD_NAME__|$sbomPodName|g" "$finalSbomManifest"
+        sed -i "s|__GIT_REPO_URL__|$(gitRepoUrl)|g" "$finalSbomManifest"
+        sed -i "s|__AZP_TOKEN__|$(System.AccessToken)|g" "$finalSbomManifest"
+        sed -i "s|__CONTEXT_SUB_PATH_RELATIVE__|${{ parameters.serviceName }}|g" "$finalSbomManifest"
+        sed -i "s|__NEXUS_USERNAME__|$(NexusUsername)|g" "$finalSbomManifest"
+        sed -i "s|__NEXUS_PASSWORD__|$(NexusPassword)|g" "$finalSbomManifest"
+        sed -i "s|__SERVICE_NAME__|${{ parameters.serviceName }}|g" "$finalSbomManifest"
+        
+        sed -i "s|__SBOM_GENERATOR_IMAGE__|$SBOM_IMAGE|g" "$finalSbomManifest"
+        ESCAPED_ARGS=$(printf '%s\n' "$SBOM_ARGS" | sed 's:[&/\\]:&&:g;$!s/$/\\/')
+        sed -i "s|__SBOM_GENERATOR_ARGS__|${ESCAPED_ARGS%?}|" "$finalSbomManifest"
+
+        echo "--- Generated SBOM Pod Manifest (Dynamically) ---"
+        cat "$finalSbomManifest"
 
   - task: Kubernetes@1
     displayName: '5b. Apply & Run SBOM Generator Pod'
