@@ -14,7 +14,6 @@ spec:
 
   initContainers:
   - name: git-cloner
-    # --- HATA BURADAYDI: "alpine:3.19" yerine "alpine/git:latest" kullanılmalı ---
     image: alpine/git:latest # den referans alınarak düzeltildi
     command: ["/bin/sh", "-c"]
     args:
