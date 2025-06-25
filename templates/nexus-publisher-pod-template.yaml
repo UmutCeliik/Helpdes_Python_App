@@ -66,31 +66,36 @@ spec:
 
     command: ["/bin/bash", "-c"]
     args:
+      args:
       - |
         set -ex
-        cd "/workspace/source/$CONTEXT_SUB_PATH_RELATIVE/"
+        # --- DOĞRU YOL ---
+        # Klonlanan reponun kendi adını ("helpdesk-app-src") yola ekliyoruz.
+        cd "/workspace/source/helpdesk-app-src/$CONTEXT_SUB_PATH_RELATIVE/"
         
         if [ "$SERVICE_TYPE" = "frontend" ]; then
           # --- FRONTEND YAYINLAMA MANTIĞI ---
           echo ">>> Frontend artifact publishing process started."
           
-          # Nexus'u kullanarak bağımlılıkları yükle
+          # .npmrc dosyasını burada oluşturmak daha güvenli
+          echo ">>> Creating .npmrc for Nexus authentication..."
           npm config set registry "$NPM_GROUP_URL"
+          AUTH_TOKEN=$(echo -n "$NEXUS_USERNAME:$NEXUS_PASSWORD" | base64)
+          echo "_auth=$AUTH_TOKEN" >> ./.npmrc
+          echo "always-auth=true" >> ./.npmrc
+          
           npm install
-
-          # Projeyi build et
           npm run build
           
-          # dist klasörünü versiyonlu bir tar.gz dosyası yap
           ARTIFACT_NAME="frontend-$BUILD_ID.tar.gz"
-          tar -czvf "../$ARTIFACT_NAME" dist
-          cd ..
+          # 'dist' klasörünün bir üst dizinine çıkıp oradan tar komutunu çalıştırıyoruz.
+          tar -czvf "/workspace/source/$ARTIFACT_NAME" -C dist .
+          
           echo "Artifact created: $ARTIFACT_NAME"
 
-          # Artifact'ı Nexus Raw Repository'ye yükle
           UPLOAD_URL="$FRONTEND_ARTIFACT_REPO_URL/$ARTIFACT_NAME"
           echo "Uploading $ARTIFACT_NAME to $UPLOAD_URL"
-          curl -v --fail -u "$NEXUS_USERNAME:$NEXUS_PASSWORD" --upload-file "$ARTIFACT_NAME" "$UPLOAD_URL"
+          curl -v --fail -u "$NEXUS_USERNAME:$NEXUS_PASSWORD" --upload-file "/workspace/source/$ARTIFACT_NAME" "$UPLOAD_URL"
 
         else
           # --- MEVCUT PYTHON YAYINLAMA MANTIĞI ---
