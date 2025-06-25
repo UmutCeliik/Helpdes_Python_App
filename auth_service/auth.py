@@ -17,7 +17,7 @@ _jwks_cache_expiry: Optional[datetime] = None
 JWKS_CACHE_TTL_SECONDS = 3600 # 1 saat cache'le
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token") # Bu satır hala diğer servislerin bu URL'e token için geleceğini belirtir.
-oauth322_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token")
+oauth32_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token")
 async def fetch_jwks(settings: Settings) -> Dict[str, Any]:
     global _jwks_cache, _jwks_cache_expiry
     now = datetime.utcnow()

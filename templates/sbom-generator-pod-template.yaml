@@ -76,12 +76,12 @@ spec:
       if [ "__SERVICE_TYPE__" = "frontend" ]; then
         /usr/local/bin/cdxgen -o /workspace/sbom.json
       else
-        cyclonedx-py requirements -r -i requirements.txt -o /workspace/sbom.json
+        cyclonedx-py requirements -i requirements.txt -o /workspace/sbom.json
       fi
 
       touch /workspace/generator.done
       echo ">>> SBOM generation complete."
-      
+
     volumeMounts:
     - name: work-volume
       mountPath: /workspace
