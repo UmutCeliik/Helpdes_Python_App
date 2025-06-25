@@ -283,14 +283,14 @@ jobs:
         fi
     condition: and(succeeded(), in(variables['serviceName'], 'user_service', 'ticket_service', 'frontend'), eq(variables['sonar_status'], 'OK'))
 
-  - task: Kubernetes@1
-    displayName: '3d. Cleanup Nexus Publisher Pod'
-    condition: always()
-    inputs:
-      connectionType: 'None'
-      namespace: '$(k8sNamespace)'
-      command: 'delete'
-      arguments: 'pod/$(nexusPublisherPodName) --ignore-not-found=true'
+  # - task: Kubernetes@1
+  #   displayName: '3d. Cleanup Nexus Publisher Pod'
+  #   condition: always()
+  #   inputs:
+  #     connectionType: 'None'
+  #     namespace: '$(k8sNamespace)'
+  #     command: 'delete'
+  #     arguments: 'pod/$(nexusPublisherPodName) --ignore-not-found=true'
 
   # ===================================================================
   # BÖLÜM 4: KANIKO BUILD POD'U
