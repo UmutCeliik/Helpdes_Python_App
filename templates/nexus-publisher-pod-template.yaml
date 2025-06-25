@@ -68,6 +68,14 @@ spec:
     args:
       - |
         set -ex
+        # `sleep` satırını kaldırın, sadece debug için eklemiştik
+        # sleep 180 
+        
+        # Git klonlama ile ilgili path sorununu daha önce konuşmuştuk.
+        # Eğer /workspace/source/helpdesk-app-src/frontend/ hala yoksa
+        # ve `ls -laR /workspace` çıktınızda `/workspace/source` altında `helpdesk-app-src` yoksa,
+        # bu yolu `cd "/workspace/source/$CONTEXT_SUB_PATH_RELATIVE/"` olarak bırakmalısınız.
+        # Eğer `ls -laR /workspace/source` çıktısında `helpdesk-app-src` varsa, bu yol doğru.
         cd "/workspace/source/helpdesk-app-src/$CONTEXT_SUB_PATH_RELATIVE/" 
         echo -n "$CONTEXT_SUB_PATH_RELATIVE"
         if [ "$SERVICE_TYPE" = "frontend" ]; then
@@ -81,11 +89,10 @@ spec:
           echo "_auth=$AUTH_TOKEN" >> ./.npmrc
           echo "always-auth=true" >> ./.npmrc
           
-          npm install
+          npm install # Bu hatayı çözdüğümüzde Nexus Lifecycle/Firewall sorununu ele alacağız.
           npm run build
           
           ARTIFACT_NAME="frontend-$BUILD_ID.tar.gz"
-          # 'dist' klasörünün bir üst dizinine çıkıp oradan tar komutunu çalıştırıyoruz.
           tar -czvf "/workspace/source/$ARTIFACT_NAME" -C dist .
           
           echo "Artifact created: $ARTIFACT_NAME"
@@ -107,7 +114,10 @@ spec:
         fi
         
         echo ">>> Publishing process completed successfully."
-
-  volumes:
+    volumeMounts: # --- BU BÖLÜMÜ EKLEMİŞTİK, DOĞRU YERİ BURASI ---
+    - name: work-volume
+      mountPath: /workspace # Konteynerin içinde volume'un bağlanacağı yer
+  
+  volumes: # --- SADECE `name` VE `emptyDir`/`hostPath`/`persistentVolumeClaim` TİPİ BURADA OLACAK ---
   - name: work-volume
-    mountPath: /workspace
+    emptyDir: {} # `mountPath` BURADAN KALDIRILDI!
