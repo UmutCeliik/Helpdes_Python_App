@@ -222,7 +222,8 @@ jobs:
         sed -i "s|__NEXUS_PASSWORD__|$(NexusPassword)|g" "$finalManifestFile"
         sed -i "s|__SERVICE_TYPE__|$SERVICE_TYPE|g" "$finalManifestFile"
         sed -i "s|__BUILD_ID__|$(Build.BuildId)|g" "$finalManifestFile"
-        
+        sed -i "s|__GIT_REPO_URL__|$(gitRepoUrl)|g" "$finalManifestFile"
+        sed -i "s|__AZP_TOKEN__|$(System.AccessToken)|g" "$finalManifestFile"
         # Değişkenlerin boş olabileceğini hesaba katarak sed komutlarını güvenli hale getirelim
         sed -i "s|__PACKAGE_VERSION__|$PACKAGE_VERSION|g" "$finalManifestFile"
         sed -i "s|__TARGET_REPO_URL__|$TARGET_REPO_URL|g" "$finalManifestFile"
