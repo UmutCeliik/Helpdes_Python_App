@@ -48,16 +48,12 @@ spec:
         
         echo ">>> Creating .npmrc for Nexus authentication..."
         
-        # --- SBOM ADIMI İÇİN DÜZELTME BAŞLANGICI ---
-        # SCA adımında başarılı olan doğrudan `.npmrc` yazma yöntemini kullanıyoruz.
         AUTH_TOKEN=$(echo -n "__NEXUS_USERNAME__:__NEXUS_PASSWORD__" | base64)
         CLEAN_NPM_REGISTRY_URL=$(echo "__NPM_GROUP_URL__" | sed 's|^https\{0,1\}://||')
         
         echo "//${CLEAN_NPM_REGISTRY_URL}:_auth=$AUTH_TOKEN" >> ./.npmrc
         echo "always-auth=true" >> ./.npmrc
-        # HATALI SATIR BURADA DÜZELTİLDİ:
         echo "registry=__NPM_GROUP_URL__" >> ./.npmrc 
-        # --- SBOM ADIMI İÇİN DÜZELTME SONU ---
         
         echo ">>> .npmrc file created for Nexus authentication."
 
@@ -80,11 +76,12 @@ spec:
       if [ "__SERVICE_TYPE__" = "frontend" ]; then
         /usr/local/bin/cdxgen -o /workspace/sbom.json
       else
-        cyclonedx-py -r -i . -o /workspace/sbom.json
+        cyclonedx-py requirements -r -i requirements.txt -o /workspace/sbom.json
       fi
 
       touch /workspace/generator.done
       echo ">>> SBOM generation complete."
+      
     volumeMounts:
     - name: work-volume
       mountPath: /workspace

@@ -19,16 +19,13 @@ spec:
       rm -rf /workspace/source && mkdir -p /workspace/source
       
       echo "Cloning repository into /workspace/source..."
-      # Not: gitRepoUrl değişkeni azure-pipelines.yml'den geliyor
       GIT_REPO_URL_WITH_TOKEN=$(echo "$GIT_REPO_URL" | sed "s,https://,https://$AZP_TOKEN@,")
       git clone --depth 1 "$GIT_REPO_URL_WITH_TOKEN" /workspace/source
       echo "Source code cloned successfully."
 
-      # --- DEBUG İÇİN EKLENEN BÖLÜM ---
       echo "--- Listing cloned files for debugging ---"
       ls -laR /workspace # <--- Bu komut size gerçeği söylemeli
       echo "--- Debug listing complete ---"
-      # --- DEBUG BÖLÜMÜ SONU ---
 
     env:
     - name: GIT_REPO_URL
@@ -68,24 +65,19 @@ spec:
     args:
       - |
         set -ex
-        # Daha önceki "cd" hatasının çözüldüğünü varsayarak bu kısım kalabilir.
-        cd "/workspace/source/helpdesk-app-src/$CONTEXT_SUB_PATH_RELATIVE/" 
+        cd "/workspace/source/$CONTEXT_SUB_PATH_RELATIVE/" 
         echo -n "$CONTEXT_SUB_PATH_RELATIVE"
         if [ "$SERVICE_TYPE" = "frontend" ]; then
-          # --- FRONTEND YAYINLAMA MANTIĞI ---
           echo ">>> Frontend artifact publishing process started."
           
-          # .npmrc dosyasını burada oluşturmak daha güvenli
           echo ">>> Creating .npmrc for Nexus authentication..."
           
-          # --- BURADAKİ DÜZELTME BAŞLANGICI ---
           AUTH_TOKEN=$(echo -n "$NEXUS_USERNAME:$NEXUS_PASSWORD" | base64)
-          CLEAN_NPM_REGISTRY_URL=$(echo "$NPM_GROUP_URL" | sed 's|^https\{0,1\}://||') # NPM_GROUP_URL kullandık
+          CLEAN_NPM_REGISTRY_URL=$(echo "$NPM_GROUP_URL" | sed 's|^https\{0,1\}://||') 
           
           echo "//${CLEAN_NPM_REGISTRY_URL}:_auth=$AUTH_TOKEN" >> ./.npmrc
           echo "always-auth=true" >> ./.npmrc
-          echo "registry=${NPM_GROUP_URL}" >> ./.npmrc # Bu satırın da kalması iyidir
-          # --- BURADAKİ DÜZELTME SONU ---
+          echo "registry=${NPM_GROUP_URL}" >> ./.npmrc 
           
           npm install 
           npm run build
@@ -100,7 +92,6 @@ spec:
           curl -v --fail -u "$NEXUS_USERNAME:$NEXUS_PASSWORD" --upload-file "/workspace/source/$ARTIFACT_NAME" "$UPLOAD_URL"
 
         else
-          # --- MEVCUT PYTHON YAYINLAMA MANTIĞI ---
           echo ">>> Python package publishing process started."
           sed -i "s/version=['\"].*['\"]/version='$PACKAGE_VERSION'/" setup.py
           pip install --no-cache-dir --index-url "$PYPI_GROUP_URL" --trusted-host "nexus-repository-manager.nexus" wheel twine
@@ -112,10 +103,10 @@ spec:
         fi
         
         echo ">>> Publishing process completed successfully."
-    volumeMounts: # --- BU BÖLÜMÜ EKLEMİŞTİK, DOĞRU YERİ BURASI ---
+    volumeMounts:
     - name: work-volume
-      mountPath: /workspace # Konteynerin içinde volume'un bağlanacağı yer
+      mountPath: /workspace 
   
-  volumes: # --- SADECE `name` VE `emptyDir`/`hostPath`/`persistentVolumeClaim` TİPİ BURADA OLACAK ---
+  volumes:
   - name: work-volume
-    emptyDir: {} # `mountPath` BURADAN KALDIRILDI!
+    emptyDir: {} 
