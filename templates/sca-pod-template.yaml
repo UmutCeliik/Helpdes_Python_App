@@ -43,12 +43,25 @@ spec:
       value: "__SERVICE_TYPE__"
     - name: NPM_CONFIG_REGISTRY
       value: "http://nexus-repository-manager.nexus:8081/repository/npm-group/"
+    - name: NEXUS_USERNAME
+      value: "__NEXUS_USERNAME__"
+    - name: NEXUS_PASSWORD
+      value: "__NEXUS_PASSWORD__"
     args:
     - |
       set -e
       echo "SCA Scan starting for service type: $SERVICE_TYPE"
       if [ "$SERVICE_TYPE" = "frontend" ]; then
         echo ">>> SCA: Using npm registry: $NPM_CONFIG_REGISTRY"
+        
+        # --- BURADAN BAŞLAYARAK .npmrc OLUŞTURMA MANTIĞINI EKLEYİN ---
+        echo ">>> Creating .npmrc for Nexus authentication..."
+        AUTH_TOKEN=$(echo -n "$NEXUS_USERNAME:$NEXUS_PASSWORD" | base64)
+        echo "_auth=$AUTH_TOKEN" >> ./.npmrc
+        echo "always-auth=true" >> ./.npmrc
+        echo "registry=$NPM_CONFIG_REGISTRY" >> ./.npmrc # Bu satır da önemli
+        # --- BURAYA KADAR .npmrc OLUŞTURMA MANTIĞI EKLEYİN ---
+
         echo "Running Node.js SCA Scan in $(pwd)..."
         npm install 
         npm audit --audit-level=moderate || (echo "npm audit found vulnerabilities" && exit 1)
