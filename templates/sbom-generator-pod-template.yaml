@@ -46,20 +46,21 @@ spec:
       if [ "__SERVICE_TYPE__" = "frontend" ]; then
         echo ">>> Installing npm dependencies from Nexus..."
         
-        # --- YENİ EKLENEN ADIM: .npmrc OLUŞTURMA ---
-        # Nexus registry URL'sini ve kimlik bilgilerini .npmrc dosyasına yaz.
-        # 1. Registry'yi ayarla
+        echo ">>> Creating .npmrc for Nexus authentication..."
+        
+        # --- BURADAKİ YENİ YAKLAŞIM ---
+        # `npm config set` komutunu kullanarak kimlik doğrulama bilgilerini doğru formatta yazdırın.
+        # Bu, `//registry.example.com/:_authToken` formatını kendisi oluşturacaktır.
         npm config set registry "__NPM_GROUP_URL__"
-        # 2. Registry için Base64 formatında bir auth token oluştur ve .npmrc'ye ekle
-        # Not: echo -n komutu sona newline karakteri eklenmesini önler.
-        AUTH_TOKEN=$(echo -n "__NEXUS_USERNAME__:__NEXUS_PASSWORD__" | base64)
-        echo "_auth=$AUTH_TOKEN" >> ./.npmrc
-        echo "always-auth=true" >> ./.npmrc
+        npm config set "//$(echo "__NPM_GROUP_URL__" | sed 's|^https\{0,1\}://||'):_authToken" "$(echo -n "__NEXUS_USERNAME__:__NEXUS_PASSWORD__" | base64)"
+        npm config set always-auth true
+        # Not: npm config set ile .npmrc güncellendiği için eski `echo "_auth=..."` satırlarına gerek kalmaz.
+        
         echo ">>> .npmrc file created for Nexus authentication."
-        # --- .NPMRC ADIMI SONU ---
 
         npm install
-
+        # npm audit --audit-level=moderate || (echo "npm audit found vulnerabilities" && exit 1) # Bu satırı yorumda bırakın/kaldırın
+        echo "npm audit skipped in SBOM generation due to Nexus configuration." # Opsiyonel bilgilendirme
       else
         echo ">>> Installing pip dependencies from Nexus..."
         pip install -r requirements.txt --index-url "__PYPI_GROUP_URL__" --trusted-host "__NEXUS_HOST__"
@@ -74,7 +75,6 @@ spec:
       
       echo ">>> Generating SBOM..."
       if [ "__SERVICE_TYPE__" = "frontend" ]; then
-        # cdxgen'i tam yoluyla çalıştırarak PATH sorunlarını önle
         /usr/local/bin/cdxgen -o /workspace/sbom.json
       else
         cyclonedx-py -r -i . -o /workspace/sbom.json
