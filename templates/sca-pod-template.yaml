@@ -57,11 +57,14 @@ spec:
         echo ">>> Creating .npmrc for Nexus authentication..."
         AUTH_TOKEN=$(echo -n "$NEXUS_USERNAME:$NEXUS_PASSWORD" | base64)
         
-        # --- BURADAKİ SATIRI DEĞİŞTİRİYORUZ ---
-        # NPM_CONFIG_REGISTRY'nin başındaki http(s):// kısmını kaldırmanız ve tırnak işaretlerine dikkat etmeniz önemli.
+        # Bu satırı bu şekilde güncelleyin:
         CLEAN_NPM_REGISTRY_URL=$(echo "$NPM_CONFIG_REGISTRY" | sed 's|^https\{0,1\}://||')
-        echo "//${CLEAN_NPM_REGISTRY_URL}:_auth=\"$AUTH_TOKEN\"" >> ./.npmrc
-        # --- DEĞİŞİKLİK BURADA BİTİYOR ---
+        # `_auth` değeri için tırnak kullanmayın, NPM genellikle bunu doğru yorumlar.
+        echo "//${CLEAN_NPM_REGISTRY_URL}:_auth=$AUTH_TOKEN" >> ./.npmrc
+        # Ek olarak, NPM config set komutunu da kullanabiliriz, bu daha sağlam olabilir:
+        # npm config set "//${CLEAN_NPM_REGISTRY_URL}:_authToken" "$AUTH_TOKEN" --location project
+        # npm config set "always-auth" true --location project
+        # npm config set "registry" "$NPM_CONFIG_REGISTRY" --location project
 
         echo "always-auth=true" >> ./.npmrc
         echo "registry=$NPM_CONFIG_REGISTRY" >> ./.npmrc 

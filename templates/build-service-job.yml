@@ -81,9 +81,8 @@ jobs:
         sed -i "s|__AZP_TOKEN__|$AZP_TOKEN|g" "$finalScaManifest"
         sed -i "s|__SCANNER_IMAGE__|$SCANNER_IMAGE|g" "$finalScaManifest"
         sed -i "s|__SERVICE_TYPE__|$SERVICE_TYPE|g" "$finalScaManifest"
-
-        # --- YENİ EKLENEN NEXUS 'sed' KOMUTLARI ---
-        # Yeni eklediğimiz Nexus alanlarını şablonda dolduruyoruz.
+        sed -i "s|__NEXUS_USERNAME__|$NEXUS_USER|g" "$finalScaManifest"
+        sed -i "s|__NEXUS_PASSWORD__|$NEXUS_PASS|g" "$finalScaManifest"
         sed -i "s|__NEXUS_URL_WITH_CREDS__|$NEXUS_URL_WITH_CREDS|g" "$finalScaManifest"
         sed -i "s|__NEXUS_HOST__|$(NEXUS_HOST)|g" "$finalScaManifest"
 
