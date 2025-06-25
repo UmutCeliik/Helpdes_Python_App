@@ -34,16 +34,45 @@ spec:
       mountPath: /workspace
 
   containers:
-  # Konteyner 1: cyclonedx-cli
   - name: generator
-    image: cyclonedx/cyclonedx-cli:0.28.2
+    # DİKKAT: İmaj burada dinamik olarak ayarlanacak
+    image: __SCANNER_IMAGE__ # Örn: node:20-slim veya python:3.11-slim
     workingDir: /workspace/source/__CONTEXT_SUB_PATH_RELATIVE__/
     command: ["/bin/sh", "-c"]
     args:
     - |
       set -ex
-      echo ">>> Generating SBOM with cyclonedx-cli..."
-      cyclonedx-cli analyze . --output-file /workspace/sbom.json
+      echo ">>> Preparing environment for SBOM generation..."
+      
+      # 1. Adım: Proje tipine göre bağımlılıkları kur
+      if [ "__SERVICE_TYPE__" = "frontend" ]; then
+        echo ">>> Installing npm dependencies from Nexus..."
+        npm config set registry "__NPM_GROUP_URL__"
+        npm install
+      else
+        echo ">>> Installing pip dependencies from Nexus..."
+        pip install -r requirements.txt --index-url "__PYPI_GROUP_URL__" --trusted-host "__NEXUS_HOST__"
+      fi
+
+      # 2. Adım: SBOM aracını kur
+      echo ">>> Installing cyclonedx-cli..."
+      # Frontend ise global olarak, Python ise pip ile kurulur
+      if [ "__SERVICE_TYPE__" = "frontend" ]; then
+        npm install -g @cyclonedx/cdxgen
+      else
+        pip install cyclonedx-bom
+      fi
+      
+      # 3. Adım: SBOM'u oluştur
+      echo ">>> Generating SBOM..."
+      if [ "__SERVICE_TYPE__" = "frontend" ]; then
+        # Frontend için cdxgen kullanılır
+        cdxgen -o /workspace/sbom.json
+      else
+        # Python için cyclonedx-py kullanılır
+        cyclonedx-py -r -i . -o /workspace/sbom.json
+      fi
+
       touch /workspace/generator.done
       echo ">>> SBOM generation complete."
     volumeMounts:

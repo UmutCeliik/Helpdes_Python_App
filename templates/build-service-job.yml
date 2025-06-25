@@ -339,8 +339,21 @@ jobs:
       targetType: 'inline'
       script: |
         set -ex
-        echo "Preparing generic SBOM Generator manifest for service: ${{ parameters.serviceName }}..."
+        echo "Preparing SBOM Generator manifest for service: ${{ parameters.serviceName }}..."
         
+        # Servis tipine göre imaj ve değişkenleri ayarla
+        if [[ "${{ parameters.serviceName }}" == "frontend" ]]; then
+          SCANNER_IMAGE="node:20-slim"
+          SERVICE_TYPE="frontend"
+          NPM_GROUP_URL="$(NEXUS_INTERNAL_URL)/repository/npm-group/"
+          PYPI_GROUP_URL="" # Boş bırak
+        else
+          SCANNER_IMAGE="python:3.11-slim"
+          SERVICE_TYPE="backend"
+          NPM_GROUP_URL="" # Boş bırak
+          PYPI_GROUP_URL=$(echo "$(NEXUS_INTERNAL_URL)/repository/helpdesk-pypi-all/simple/" | sed "s,http://,http://$(NexusUsername):$(NexusPassword)@,")
+        fi
+
         # Pod adını ve dosya yolunu hazırla
         safePodSuffix=$(echo "${{ parameters.serviceName }}" | sed 's/_/-/g')
         sbomPodName="sbom-$(Build.BuildId)-$safePodSuffix"
@@ -349,7 +362,7 @@ jobs:
         finalSbomManifest="$(kanikoFinalFile)-sbom-${{ parameters.serviceName }}"
         cp templates/sbom-generator-pod-template.yaml "$finalSbomManifest"
         
-        # Sadece temel placeholder'ları dolduruyoruz. İmaj ve komut artık sabit.
+        # Placeholder'ları doldur
         sed -i "s|__POD_NAME__|$sbomPodName|g" "$finalSbomManifest"
         sed -i "s|__GIT_REPO_URL__|$(gitRepoUrl)|g" "$finalSbomManifest"
         sed -i "s|__AZP_TOKEN__|$(System.AccessToken)|g" "$finalSbomManifest"
@@ -357,8 +370,14 @@ jobs:
         sed -i "s|__NEXUS_USERNAME__|$(NexusUsername)|g" "$finalSbomManifest"
         sed -i "s|__NEXUS_PASSWORD__|$(NexusPassword)|g" "$finalSbomManifest"
         sed -i "s|__SERVICE_NAME__|${{ parameters.serviceName }}|g" "$finalSbomManifest"
+        # Yeni eklenen dinamik değişkenler
+        sed -i "s|__SCANNER_IMAGE__|$SCANNER_IMAGE|g" "$finalSbomManifest"
+        sed -i "s|__SERVICE_TYPE__|$SERVICE_TYPE|g" "$finalSbomManifest"
+        sed -i "s|__NPM_GROUP_URL__|$NPM_GROUP_URL|g" "$finalSbomManifest"
+        sed -i "s|__PYPI_GROUP_URL__|$PYPI_GROUP_URL|g" "$finalSbomManifest"
+        sed -i "s|__NEXUS_HOST__|$(NEXUS_HOST)|g" "$finalSbomManifest"
 
-        echo "--- Generated Generic SBOM Pod Manifest ---"
+        echo "--- Generated SBOM Pod Manifest ---"
         cat "$finalSbomManifest"
 
   - task: Kubernetes@1
