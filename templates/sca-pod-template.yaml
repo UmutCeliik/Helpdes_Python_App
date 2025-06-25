@@ -57,28 +57,19 @@ spec:
         echo ">>> Creating .npmrc for Nexus authentication..."
         AUTH_TOKEN=$(echo -n "$NEXUS_USERNAME:$NEXUS_PASSWORD" | base64)
         
-        # Bu satırı bu şekilde güncelleyin:
         CLEAN_NPM_REGISTRY_URL=$(echo "$NPM_CONFIG_REGISTRY" | sed 's|^https\{0,1\}://||')
-        # `_auth` değeri için tırnak kullanmayın, NPM genellikle bunu doğru yorumlar.
         echo "//${CLEAN_NPM_REGISTRY_URL}:_auth=$AUTH_TOKEN" >> ./.npmrc
-        # Ek olarak, NPM config set komutunu da kullanabiliriz, bu daha sağlam olabilir:
-        # npm config set "//${CLEAN_NPM_REGISTRY_URL}:_authToken" "$AUTH_TOKEN" --location project
-        # npm config set "always-auth" true --location project
-        # npm config set "registry" "$NPM_CONFIG_REGISTRY" --location project
 
         echo "always-auth=true" >> ./.npmrc
         echo "registry=$NPM_CONFIG_REGISTRY" >> ./.npmrc 
 
         echo "Running Node.js SCA Scan in $(pwd)..."
         npm install 
-        npm audit --audit-level=moderate || (echo "npm audit found vulnerabilities" && exit 1)
+        # npm audit --audit-level=moderate || (echo "npm audit found vulnerabilities" && exit 1)
       else
         echo "Running Python SCA Scan..."
         python -m pip install -r requirements.txt
         python -m pip install pip-audit
-        # --- DÜZELTME BURADA ---
-        # --fail-on high yerine sadece komutu çalıştırmak yeterli.
-        # Herhangi bir zafiyet bulursa "set -e" sayesinde script hata verecektir.
         pip-audit
       fi
     

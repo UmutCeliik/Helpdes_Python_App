@@ -48,19 +48,21 @@ spec:
         
         echo ">>> Creating .npmrc for Nexus authentication..."
         
-        # --- BURADAKİ YENİ YAKLAŞIM ---
-        # `npm config set` komutunu kullanarak kimlik doğrulama bilgilerini doğru formatta yazdırın.
-        # Bu, `//registry.example.com/:_authToken` formatını kendisi oluşturacaktır.
-        npm config set registry "__NPM_GROUP_URL__"
-        npm config set "//$(echo "__NPM_GROUP_URL__" | sed 's|^https\{0,1\}://||'):_authToken" "$(echo -n "__NEXUS_USERNAME__:__NEXUS_PASSWORD__" | base64)"
-        # npm config set always-auth true
-        # Not: npm config set ile .npmrc güncellendiği için eski `echo "_auth=..."` satırlarına gerek kalmaz.
+        # --- SBOM ADIMI İÇİN DÜZELTME BAŞLANGICI ---
+        # SCA adımında başarılı olan doğrudan `.npmrc` yazma yöntemini kullanıyoruz.
+        AUTH_TOKEN=$(echo -n "__NEXUS_USERNAME__:__NEXUS_PASSWORD__" | base64)
+        CLEAN_NPM_REGISTRY_URL=$(echo "__NPM_GROUP_URL__" | sed 's|^https\{0,1\}://||')
+        
+        echo "//${CLEAN_NPM_REGISTRY_URL}:_auth=$AUTH_TOKEN" >> ./.npmrc
+        echo "always-auth=true" >> ./.npmrc
+        echo "registry=${__NPM_GROUP_URL__}" >> ./.npmrc # NPM_CONFIG_REGISTRY yerine __NPM_GROUP_URL__ kullanıyoruz
+        # --- SBOM ADIMI İÇİN DÜZELTME SONU ---
         
         echo ">>> .npmrc file created for Nexus authentication."
 
         npm install
-        # npm audit --audit-level=moderate || (echo "npm audit found vulnerabilities" && exit 1) # Bu satırı yorumda bırakın/kaldırın
-        echo "npm audit skipped in SBOM generation due to Nexus configuration." # Opsiyonel bilgilendirme
+        # npm audit --audit-level=moderate || (echo "npm audit found vulnerabilities" && exit 1)
+        echo "npm audit skipped in SBOM generation due to Nexus configuration."
       else
         echo ">>> Installing pip dependencies from Nexus..."
         pip install -r requirements.txt --index-url "__PYPI_GROUP_URL__" --trusted-host "__NEXUS_HOST__"
