@@ -55,7 +55,8 @@ spec:
         
         echo "//${CLEAN_NPM_REGISTRY_URL}:_auth=$AUTH_TOKEN" >> ./.npmrc
         echo "always-auth=true" >> ./.npmrc
-        echo "registry=${__NPM_GROUP_URL__}" >> ./.npmrc # NPM_CONFIG_REGISTRY yerine __NPM_GROUP_URL__ kullanıyoruz
+        # HATALI SATIR BURADA DÜZELTİLDİ:
+        echo "registry=__NPM_GROUP_URL__" >> ./.npmrc 
         # --- SBOM ADIMI İÇİN DÜZELTME SONU ---
         
         echo ">>> .npmrc file created for Nexus authentication."
