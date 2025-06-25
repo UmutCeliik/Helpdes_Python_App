@@ -76,7 +76,7 @@ spec:
         # ve `ls -laR /workspace` çıktınızda `/workspace/source` altında `helpdesk-app-src` yoksa,
         # bu yolu `cd "/workspace/source/$CONTEXT_SUB_PATH_RELATIVE/"` olarak bırakmalısınız.
         # Eğer `ls -laR /workspace/source` çıktısında `helpdesk-app-src` varsa, bu yol doğru.
-        cd "/workspace/source/helpdesk-app-src/$CONTEXT_SUB_PATH_RELATIVE/" 
+        cd "/workspace/source/$CONTEXT_SUB_PATH_RELATIVE/" 
         echo -n "$CONTEXT_SUB_PATH_RELATIVE"
         if [ "$SERVICE_TYPE" = "frontend" ]; then
           # --- FRONTEND YAYINLAMA MANTIĞI ---
