@@ -1,5 +1,3 @@
-# templates/nexus-publisher-pod-template.yaml (GÜNCELLENMİŞ - Final Düzeltme)
-# Bu şablon, gizli değişkenlerin doğrudan pipeline tarafından doldurulmasına izin verecek şekilde güncellenmiştir.
 apiVersion: v1
 kind: Pod
 metadata:
@@ -18,11 +16,9 @@ spec:
     args:
     - |
       set -ex
-      echo "Cloning repository..."
+      GIT_REPO_URL_WITH_TOKEN=$(echo "__GIT_REPO_URL__" | sed "s,https://,https://__AZP_TOKEN__@,")
       git clone "$GIT_REPO_URL_WITH_TOKEN" /workspace/source
-      echo "Source code cloned successfully."
     env:
-    # Bu değişken, build-service-job.yml'de dinamik olarak doldurulur.
     - name: GIT_REPO_URL_WITH_TOKEN
       value: __GIT_REPO_URL_WITH_TOKEN__
     volumeMounts:
@@ -31,56 +27,74 @@ spec:
 
   containers:
   - name: publisher
-    image: umut98/nexus-publisher:latest
+    image: umut98/nexus-publisher:latest # YENİ OLUŞTURDUĞUNUZ İMAJ
     env:
+    # --- Ortak Değişkenler ---
     - name: NEXUS_USERNAME
       value: __NEXUS_USERNAME__
     - name: NEXUS_PASSWORD
       value: __NEXUS_PASSWORD__
     - name: CONTEXT_SUB_PATH_RELATIVE
       value: __CONTEXT_SUB_PATH_RELATIVE__
+    - name: SERVICE_TYPE # YENİ: 'backend' veya 'frontend' olacak
+      value: __SERVICE_TYPE__
+    # --- Python'a Özel Değişkenler ---
     - name: PACKAGE_VERSION
       value: __PACKAGE_VERSION__
     - name: TARGET_REPO_URL
       value: __TARGET_REPO_URL__
     - name: PYPI_GROUP_URL
       value: __PYPI_GROUP_URL__
-    - name: NEXUS_HOST
-      value: __NEXUS_HOST__
-    volumeMounts:
-    - name: work-volume
-      mountPath: /workspace
+    # --- Frontend'e Özel Değişkenler ---
+    - name: NPM_GROUP_URL # YENİ
+      value: __NPM_GROUP_URL__
+    - name: FRONTEND_ARTIFACT_REPO_URL # YENİ
+      value: __FRONTEND_ARTIFACT_REPO_URL__
+    - name: BUILD_ID # YENİ
+      value: __BUILD_ID__
+
     command: ["/bin/bash", "-c"]
     args:
       - |
         set -ex
         cd "/workspace/source/$CONTEXT_SUB_PATH_RELATIVE/"
-        echo "--- Current Directory: $(pwd) ---"
-        echo "Updating version in setup.py to '$PACKAGE_VERSION'"
-        sed -i "s/version=['\"].*['\"]/version='$PACKAGE_VERSION'/" setup.py
-        echo "--- Installing build tools ---"
-        pip install --no-cache-dir --index-url "$PYPI_GROUP_URL" --trusted-host "$NEXUS_HOST" wheel twine
-        echo "--- Building the package ---"
-        python setup.py sdist bdist_wheel
-        echo "--- Publishing to Nexus ---"
-        export TWINE_USERNAME="$NEXUS_USERNAME"
-        export TWINE_PASSWORD="$NEXUS_PASSWORD"
+        
+        if [ "$SERVICE_TYPE" = "frontend" ]; then
+          # --- FRONTEND YAYINLAMA MANTIĞI ---
+          echo ">>> Frontend artifact publishing process started."
+          
+          # Nexus'u kullanarak bağımlılıkları yükle
+          npm config set registry "$NPM_GROUP_URL"
+          npm install
 
-        # Twine çıktısını bir dosyaya yönlendir ve bu dosyayı oku
-        # twine upload komutunun exit code'u 0 değilse, exit 1 ile shell'i durdur.
-        if ! twine upload --repository-url "$TARGET_REPO_URL" dist/* 2>&1 | tee twine_output.log; then
-            echo "ERROR: Twine upload failed. See twine_output.log above for details."
-            # Logu pipeline'a hata olarak işaretle
-            echo "##vso[task.logissue type=error;]Twine upload operation failed."
-            exit 1
+          # Projeyi build et
+          npm run build
+          
+          # dist klasörünü versiyonlu bir tar.gz dosyası yap
+          ARTIFACT_NAME="frontend-$BUILD_ID.tar.gz"
+          tar -czvf "../$ARTIFACT_NAME" dist
+          cd ..
+          echo "Artifact created: $ARTIFACT_NAME"
+
+          # Artifact'ı Nexus Raw Repository'ye yükle
+          UPLOAD_URL="$FRONTEND_ARTIFACT_REPO_URL/$ARTIFACT_NAME"
+          echo "Uploading $ARTIFACT_NAME to $UPLOAD_URL"
+          curl -v --fail -u "$NEXUS_USERNAME:$NEXUS_PASSWORD" --upload-file "$ARTIFACT_NAME" "$UPLOAD_URL"
+
+        else
+          # --- MEVCUT PYTHON YAYINLAMA MANTIĞI ---
+          echo ">>> Python package publishing process started."
+          sed -i "s/version=['\"].*['\"]/version='$PACKAGE_VERSION'/" setup.py
+          pip install --no-cache-dir --index-url "$PYPI_GROUP_URL" --trusted-host "nexus-repository-manager.nexus" wheel twine
+          python setup.py sdist bdist_wheel
+          
+          export TWINE_USERNAME="$NEXUS_USERNAME"
+          export TWINE_PASSWORD="$NEXUS_PASSWORD"
+          twine upload --repository-url "$TARGET_REPO_URL" dist/*
         fi
+        
+        echo ">>> Publishing process completed successfully."
 
-        # Başarılı olursa log dosyasını da göster
-        cat twine_output.log
-        echo "Artifacts published successfully."
-
-        # Konteynerin doğru şekilde kapanmasını sağla
-        exec sleep 5 # Küçük bir bekleme süresi ve ardından exec ile konteynerin kapanmasını bekle
   volumes:
   - name: work-volume
     emptyDir: {}

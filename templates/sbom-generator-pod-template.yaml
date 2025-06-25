@@ -1,4 +1,4 @@
-# templates/sbom-generator-pod-template.yaml (NİHAİ ve EN TEMİZ VERSİYON)
+# templates/sbom-generator-pod-template.yaml (DÜZELTİLMİŞ)
 apiVersion: v1
 kind: Pod
 metadata:
@@ -14,14 +14,18 @@ spec:
 
   initContainers:
   - name: git-cloner
-    image: alpine:3.19 # Versiyon sabitlendi
+    # --- HATA BURADAYDI: "alpine:3.19" yerine "alpine/git:latest" kullanılmalı ---
+    image: alpine/git:latest # den referans alınarak düzeltildi
     command: ["/bin/sh", "-c"]
     args:
     - |
       set -ex
+      # AZP_TOKEN'ı doğrudan URL'ye enjekte etmek yerine git'in kendi mekanizmasını kullanmak daha güvenlidir,
+      # ancak mevcut yapınız da çalışır.
       GIT_REPO_URL_WITH_TOKEN=$(echo "__GIT_REPO_URL__" | sed "s,https://,https://__AZP_TOKEN__@,")
       git clone "$GIT_REPO_URL_WITH_TOKEN" /workspace/source
     env:
+    # Bu değişkenler Azure Pipelines tarafından doldurulur
     - name: GIT_REPO_URL
       value: "__GIT_REPO_URL__"
     - name: AZP_TOKEN
@@ -31,26 +35,23 @@ spec:
       mountPath: /workspace
 
   containers:
-  # Konteyner 1: Her proje tipi için aynı komutu çalıştırır
+  # Konteyner 1: cyclonedx-cli
   - name: generator
-    image: cyclonedx/cyclonedx-cli:0.28.2 # <-- Sizin bulduğunuz harika imaj ve sabitlenmiş versiyon! 
+    image: cyclonedx/cyclonedx-cli:0.28.2
     workingDir: /workspace/source/__CONTEXT_SUB_PATH_RELATIVE__/
     command: ["/bin/sh", "-c"]
     args:
     - |
       set -ex
       echo ">>> Generating SBOM with cyclonedx-cli..."
-      # Bu komut proje tipini (node, python vb.) otomatik algılar.
       cyclonedx-cli analyze . --output-file /workspace/sbom.json
-      
-      # Uploader konteynerinin devam etmesi için .done dosyasını oluştur
       touch /workspace/generator.done
       echo ">>> SBOM generation complete."
     volumeMounts:
     - name: work-volume
       mountPath: /workspace
 
-  # uploader konteyneri aynı kalıyor
+  # Konteyner 2: Nexus'a yükleme
   - name: uploader
     image: curlimages/curl:8.9.0
     workingDir: /workspace/

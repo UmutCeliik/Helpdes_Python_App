@@ -43,7 +43,6 @@ spec:
       value: "__SERVICE_TYPE__"
     - name: NPM_CONFIG_REGISTRY
       value: "http://nexus-repository-manager.nexus:8081/repository/npm-group/"
-      
     args:
     - |
       set -e
@@ -57,7 +56,10 @@ spec:
         echo "Running Python SCA Scan..."
         python -m pip install -r requirements.txt
         python -m pip install pip-audit
-        pip-audit --fail-on high
+        # --- DÜZELTME BURADA ---
+        # --fail-on high yerine sadece komutu çalıştırmak yeterli.
+        # Herhangi bir zafiyet bulursa "set -e" sayesinde script hata verecektir.
+        pip-audit
       fi
     
     volumeMounts:
