@@ -54,13 +54,17 @@ spec:
       if [ "$SERVICE_TYPE" = "frontend" ]; then
         echo ">>> SCA: Using npm registry: $NPM_CONFIG_REGISTRY"
         
-        # --- BURADAN BAŞLAYARAK .npmrc OLUŞTURMA MANTIĞINI EKLEYİN ---
         echo ">>> Creating .npmrc for Nexus authentication..."
         AUTH_TOKEN=$(echo -n "$NEXUS_USERNAME:$NEXUS_PASSWORD" | base64)
-        echo "_auth=$AUTH_TOKEN" >> ./.npmrc
+        
+        # --- BURADAKİ SATIRI DEĞİŞTİRİYORUZ ---
+        # NPM_CONFIG_REGISTRY'nin başındaki http(s):// kısmını kaldırmanız ve tırnak işaretlerine dikkat etmeniz önemli.
+        CLEAN_NPM_REGISTRY_URL=$(echo "$NPM_CONFIG_REGISTRY" | sed 's|^https\{0,1\}://||')
+        echo "//${CLEAN_NPM_REGISTRY_URL}:_auth=\"$AUTH_TOKEN\"" >> ./.npmrc
+        # --- DEĞİŞİKLİK BURADA BİTİYOR ---
+
         echo "always-auth=true" >> ./.npmrc
-        echo "registry=$NPM_CONFIG_REGISTRY" >> ./.npmrc # Bu satır da önemli
-        # --- BURAYA KADAR .npmrc OLUŞTURMA MANTIĞI EKLEYİN ---
+        echo "registry=$NPM_CONFIG_REGISTRY" >> ./.npmrc 
 
         echo "Running Node.js SCA Scan in $(pwd)..."
         npm install 

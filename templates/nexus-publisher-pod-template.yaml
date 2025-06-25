@@ -26,7 +26,7 @@ spec:
 
       # --- DEBUG İÇİN EKLENEN BÖLÜM ---
       echo "--- Listing cloned files for debugging ---"
-      ls -laR /workspace
+      ls -laR /workspace # <--- Bu komut size gerçeği söylemeli
       echo "--- Debug listing complete ---"
       # --- DEBUG BÖLÜMÜ SONU ---
 
