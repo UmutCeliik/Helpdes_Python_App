@@ -9,18 +9,25 @@ spec:
   restartPolicy: Never
   serviceAccountName: ado-agent-sa
   
-  initContainers:
+  iinitContainers:
   - name: git-cloner
     image: alpine/git:latest
     command: ["/bin/sh", "-c"]
     args:
     - |
       set -ex
-      GIT_REPO_URL_WITH_TOKEN=$(echo "__GIT_REPO_URL__" | sed "s,https://,https://__AZP_TOKEN__@,")
-      git clone "$GIT_REPO_URL_WITH_TOKEN" /workspace/source
+      # Hedef dizini temizle (varsa) ve yeniden oluştur. Bu, Exit Code 128'i önler.
+      rm -rf /workspace/source && mkdir -p /workspace/source
+      
+      echo "Cloning repository into /workspace/source..."
+      GIT_REPO_URL_WITH_TOKEN=$(echo "$GIT_REPO_URL" | sed "s,https://,https://$AZP_TOKEN@,")
+      git clone --depth 1 "$GIT_REPO_URL_WITH_TOKEN" /workspace/source
+      echo "Source code cloned successfully."
     env:
-    - name: GIT_REPO_URL_WITH_TOKEN
-      value: __GIT_REPO_URL_WITH_TOKEN__
+    - name: GIT_REPO_URL
+      value: "__GIT_REPO_URL__"
+    - name: AZP_TOKEN
+      value: "__AZP_TOKEN__"
     volumeMounts:
     - name: work-volume
       mountPath: /workspace
