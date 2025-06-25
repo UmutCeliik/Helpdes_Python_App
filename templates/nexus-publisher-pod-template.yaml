@@ -68,9 +68,7 @@ spec:
     args:
       - |
         set -ex
-        # --- DOĞRU YOL ---
-        # Klonlanan reponun kendi adını ("helpdesk-app-src") yola ekliyoruz.
-        cd "/workspace/source/helpdesk-app-src/$CONTEXT_SUB_PATH_RELATIVE/"
+        cd "/workspace/source/$CONTEXT_SUB_PATH_RELATIVE/"
         
         if [ "$SERVICE_TYPE" = "frontend" ]; then
           # --- FRONTEND YAYINLAMA MANTIĞI ---
