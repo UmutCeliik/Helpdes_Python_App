@@ -41,17 +41,17 @@ spec:
       value: "__NEXUS_HOST__"
     - name: SERVICE_TYPE
       value: "__SERVICE_TYPE__"
+    - name: NPM_CONFIG_REGISTRY
+      value: "http://nexus-repository-manager.nexus:8081/repository/npm-group/"
       
     args:
     - |
       set -e
-      
-      echo ">>> SCA: Using pip index URL: $PIP_INDEX_URL"
-
       echo "SCA Scan starting for service type: $SERVICE_TYPE"
       if [ "$SERVICE_TYPE" = "frontend" ]; then
+        echo ">>> SCA: Using npm registry: $NPM_CONFIG_REGISTRY"
         echo "Running Node.js SCA Scan in $(pwd)..."
-        npm install
+        npm install 
         npm audit --audit-level=moderate || (echo "npm audit found vulnerabilities" && exit 1)
       else
         echo "Running Python SCA Scan..."

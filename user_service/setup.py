@@ -1,15 +1,31 @@
 # user_service/setup.py
+import os
 from setuptools import setup, find_packages
+
+
+long_description = ""
+long_description_content_type = "text/markdown"
+
+
+this_directory = os.path.abspath(os.path.dirname(__file__))
+
+readme_path = os.path.join(this_directory, 'README.md')
+
+try:
+    with open(readme_path, encoding='utf-8') as f:
+        long_description = f.read()
+except FileNotFoundError:
+
+    print(f"WARNING: README.md not found at {readme_path}. Using empty long_description.")
+
+    pass
 
 setup(
     name='helpdesk-user-service',
-    version='0.1.0', # Bu versiyonu pipeline'daki Build.BuildId ile dinamik hale getirebiliriz
+    version='0.1.0',
     packages=find_packages(),
     include_package_data=True,
     install_requires=[
-        # requirements.txt dosyasındaki bağımlılıkları buraya kopyala
-        # Veya setup.py'nin requirements.txt'yi okumasını sağlayabiliriz.
-        # Basitlik için şimdilik manuel kopyalayalım veya en önemlilerini ekleyelim.
         'fastapi==0.111.0',
         'uvicorn[standard]==0.29.0',
         'SQLAlchemy==2.0.30',
@@ -26,18 +42,18 @@ setup(
     ],
     entry_points={
         'console_scripts': [
-            'user_service_app=user_service.main:app', # Uygulamanın ana giriş noktası
+            'user_service_app=user_service.main:app',
         ],
     },
     author='Umut Celik',
     author_email='umut.celik@cloudpro.com.tr',
     description='Helpdesk User Management Service',
-    long_description=open('README.md').read(), # Eğer README.md varsa
-    long_description_content_type='text/markdown',
-    url='https://dev.azure.com/umutcelik0234/HelpDesk_App/_git/helpdesk-app-src', # Proje URL'i
+    long_description=long_description,
+    long_description_content_type=long_description_content_type,
+    url='https://dev.azure.com/umutcelik0234/HelpDesk_App/_git/helpdesk-app-src',
     classifiers=[
         'Programming Language :: Python :: 3',
-        'License :: OSI Approved :: MIT License', # Lisansını buraya ekle
+        'License :: OSI Approved :: MIT License',
         'Operating System :: OS Independent',
     ],
     python_requires='>=3.11',

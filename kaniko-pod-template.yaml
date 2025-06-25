@@ -66,6 +66,8 @@ spec:
       value: "http://$(NEXUS_USERNAME):$(NEXUS_PASSWORD)@$(NEXUS_HOST):8081/repository/helpdesk-pypi-all/simple/"
     - name: PIP_TRUSTED_HOST
       value: "$(NEXUS_HOST)"
+    - name: NPM_CONFIG_REGISTRY
+      value: "http://nexus-repository-manager.nexus:8081/repository/npm-group/"
     volumeMounts:
     - name: workspace
       mountPath: /workspace # Kaynak kodunun olduğu dizin

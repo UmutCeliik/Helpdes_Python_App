@@ -42,11 +42,14 @@ spec:
     args:
     - |
       set -ex
-      echo ">>> Generating SBOM file..."
-      # Komutun en son bulduğumuz doğru hali
-      cyclonedx-py requirements requirements.txt -o /workspace/sbom.json
+      if [ ! -f "requirements.txt" ]; then
+        echo ">>> No requirements.txt found. Skipping SBOM generation for this service (likely frontend)."
+        touch /workspace/generator.done # Uploader'ın beklemesini bitirmesi için boş done dosyası oluştur
+        exit 0
+      fi
 
-      # Yükleyicinin başlaması için "işlem tamam" dosyası oluştur
+      echo ">>> Generating SBOM file..."
+      cyclonedx-py requirements requirements.txt -o /workspace/sbom.json
       touch /workspace/generator.done
       echo ">>> SBOM generation complete. 'generator.done' flag created."
     volumeMounts:
