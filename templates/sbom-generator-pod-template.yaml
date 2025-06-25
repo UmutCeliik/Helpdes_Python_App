@@ -1,4 +1,4 @@
-# templates/sbom-generator-pod-template.yaml (YENİ - Jenerik ve Dinamik Versiyon)
+# templates/sbom-generator-pod-template.yaml (NİHAİ ve EN TEMİZ VERSİYON)
 apiVersion: v1
 kind: Pod
 metadata:
@@ -20,9 +20,7 @@ spec:
     - |
       set -ex
       GIT_REPO_URL_WITH_TOKEN=$(echo "__GIT_REPO_URL__" | sed "s,https://,https://__AZP_TOKEN__@,")
-      echo "Cloning repository into /workspace/source..."
       git clone "$GIT_REPO_URL_WITH_TOKEN" /workspace/source
-      echo "Source code cloned successfully."
     env:
     - name: GIT_REPO_URL
       value: "__GIT_REPO_URL__"
@@ -33,52 +31,47 @@ spec:
       mountPath: /workspace
 
   containers:
-  # Bu konteynerin imajı ve komutu pipeline'dan dinamik olarak gelecek
+  # Konteyner 1: Her proje tipi için aynı komutu çalıştırır
   - name: generator
-    image: __SBOM_GENERATOR_IMAGE__
+    image: cyclonedx/cyclonedx-cli:0.28.2 # <-- Sizin bulduğunuz harika imaj ve sabitlenmiş versiyon! 
     workingDir: /workspace/source/__CONTEXT_SUB_PATH_RELATIVE__/
-    command: ["/bin/bash", "-c"]
+    command: ["/bin/sh", "-c"]
     args:
     - |
-      __SBOM_GENERATOR_ARGS__
-
+      set -ex
+      echo ">>> Generating SBOM with cyclonedx-cli..."
+      # Bu komut proje tipini (node, python vb.) otomatik algılar.
+      cyclonedx-cli analyze . --output-file /workspace/sbom.json
+      
+      # Uploader konteynerinin devam etmesi için .done dosyasını oluştur
+      touch /workspace/generator.done
+      echo ">>> SBOM generation complete."
     volumeMounts:
     - name: work-volume
       mountPath: /workspace
 
-  # uploader konteyneri aynı kalıyor, sadece 'generator' işini bitirene kadar bekliyor
+  # uploader konteyneri aynı kalıyor
   - name: uploader
-    image: curlimages/curl:8.9.0 # Versiyon sabitlendi
+    image: curlimages/curl:8.9.0
     workingDir: /workspace/
     command: ["/bin/sh", "-c"]
     args:
     - |
       set -ex
       echo ">>> Uploader waiting for generator.done file..."
+      while [ ! -f /workspace/generator.done ]; do sleep 2; done
       
-      # 'generator.done' dosyası oluşana kadar bekle
-      while [ ! -f /workspace/generator.done ]; do
-        sleep 2
-      done
-      
-      # Sadece sbom.json varsa yüklemeyi dene
       if [ -f "/workspace/sbom.json" ]; then
-        echo ">>> SBOM file found. Preparing to upload..."
+        echo ">>> SBOM file found. Uploading..."
         SBOM_FILE="sbom-$(date +%s)-__SERVICE_NAME__.json"
         mv /workspace/sbom.json "/workspace/$SBOM_FILE"
-        
-        echo ">>> Uploading $SBOM_FILE to Nexus..."
-        if ! curl -vS --fail -u "__NEXUS_USERNAME__:__NEXUS_PASSWORD__" \
+        curl -vS --fail -u "__NEXUS_USERNAME__:__NEXUS_PASSWORD__" \
             --upload-file "/workspace/$SBOM_FILE" \
-            "http://nexus-repository-manager.nexus:8081/repository/sbom-reports/$SBOM_FILE"; then
-          echo "!!! SBOM UPLOAD FAILED !!!"
-          exit 1
-        fi
+            "http://nexus-repository-manager.nexus:8081/repository/sbom-reports/$SBOM_FILE"
         echo ">>> SBOM upload successful!"
       else
-        echo ">>> No sbom.json found. Nothing to upload. Exiting gracefully."
+        echo ">>> No sbom.json found. Nothing to upload."
       fi
-
     volumeMounts:
     - name: work-volume
       mountPath: /workspace

@@ -16,12 +16,13 @@ try:
 except FileNotFoundError:
 
     print(f"WARNING: README.md not found at {readme_path}. Using empty long_description.")
+    print(f"WARNING: README.md not found at {readme_path}. Using empty long_description.")
 
     pass
 
 setup(
     name='helpdesk-user-service',
-    version='0.1.0',
+    version='0.1.1',
     packages=find_packages(),
     include_package_data=True,
     install_requires=[

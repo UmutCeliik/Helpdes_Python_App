@@ -322,24 +322,8 @@ jobs:
       targetType: 'inline'
       script: |
         set -ex
-        echo "Preparing SBOM Generator manifest for service: ${{ parameters.serviceName }}..."
+        echo "Preparing generic SBOM Generator manifest for service: ${{ parameters.serviceName }}..."
         
-        # --- Dinamik İmaj ve Komut Belirleme ---
-        if [ "${{ parameters.serviceName }}" == "frontend" ]; then
-          # Frontend (Node.js) için ayarlar
-          SBOM_IMAGE="cyclonedx/cdxgen:9.11.0" # Frontend için resmi cdxgen imajı (versiyon sabitlendi)
-          # Bu imaj, package-lock.json'u okur ve SBOM oluşturur. npm install'a gerek duymaz.
-          SBOM_ARGS="set -ex && echo '>>> cdxgen: Generating SBOM from package-lock.json...' && cdxgen -t node -o /workspace/sbom.json && touch /workspace/generator.done && echo '>>> cdxgen: SBOM generation complete.'"
-        else
-          # Backend (Python) için ayarlar
-          SBOM_IMAGE="cyclonedx/cyclonedx-python:0.15.1" # Python için resmi imaj (versiyon sabitlendi)
-          SBOM_ARGS="set -ex && echo '>>> cyclonedx-py: Generating SBOM from requirements.txt...' && cyclonedx-py requirements requirements.txt -o /workspace/sbom.json && touch /workspace/generator.done && echo '>>> cyclonedx-py: SBOM generation complete.'"
-        fi
-        
-        # Bu değişkenleri sonraki sed komutlarında kullanmak için export ediyoruz.
-        export SBOM_IMAGE
-        export SBOM_ARGS
-
         # Pod adını ve dosya yolunu hazırla
         safePodSuffix=$(echo "${{ parameters.serviceName }}" | sed 's/_/-/g')
         sbomPodName="sbom-$(Build.BuildId)-$safePodSuffix"
@@ -348,7 +332,7 @@ jobs:
         finalSbomManifest="$(kanikoFinalFile)-sbom-${{ parameters.serviceName }}"
         cp templates/sbom-generator-pod-template.yaml "$finalSbomManifest"
         
-        # Tüm placeholder'ları doldur
+        # Sadece temel placeholder'ları dolduruyoruz. İmaj ve komut artık sabit.
         sed -i "s|__POD_NAME__|$sbomPodName|g" "$finalSbomManifest"
         sed -i "s|__GIT_REPO_URL__|$(gitRepoUrl)|g" "$finalSbomManifest"
         sed -i "s|__AZP_TOKEN__|$(System.AccessToken)|g" "$finalSbomManifest"
@@ -356,12 +340,8 @@ jobs:
         sed -i "s|__NEXUS_USERNAME__|$(NexusUsername)|g" "$finalSbomManifest"
         sed -i "s|__NEXUS_PASSWORD__|$(NexusPassword)|g" "$finalSbomManifest"
         sed -i "s|__SERVICE_NAME__|${{ parameters.serviceName }}|g" "$finalSbomManifest"
-        
-        sed -i "s|__SBOM_GENERATOR_IMAGE__|$SBOM_IMAGE|g" "$finalSbomManifest"
-        ESCAPED_ARGS=$(printf '%s\n' "$SBOM_ARGS" | sed 's:[&/\\]:&&:g;$!s/$/\\/')
-        sed -i "s|__SBOM_GENERATOR_ARGS__|${ESCAPED_ARGS%?}|" "$finalSbomManifest"
 
-        echo "--- Generated SBOM Pod Manifest (Dynamically) ---"
+        echo "--- Generated Generic SBOM Pod Manifest ---"
         cat "$finalSbomManifest"
 
   - task: Kubernetes@1
