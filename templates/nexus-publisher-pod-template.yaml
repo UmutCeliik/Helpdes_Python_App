@@ -68,7 +68,7 @@ spec:
     args:
       - |
         set -ex
-
+        sleep 180
         # cd "/workspace/source/$CONTEXT_SUB_PATH_RELATIVE/" 
         # echo -n "$CONTEXT_SUB_PATH_RELATIVE"
         # if [ "$SERVICE_TYPE" = "frontend" ]; then
