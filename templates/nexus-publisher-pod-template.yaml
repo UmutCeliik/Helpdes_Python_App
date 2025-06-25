@@ -16,13 +16,20 @@ spec:
     args:
     - |
       set -ex
-      # Hedef dizini temizle (varsa) ve yeniden oluştur. Bu, Exit Code 128'i önler.
       rm -rf /workspace/source && mkdir -p /workspace/source
       
       echo "Cloning repository into /workspace/source..."
+      # Not: gitRepoUrl değişkeni azure-pipelines.yml'den geliyor
       GIT_REPO_URL_WITH_TOKEN=$(echo "$GIT_REPO_URL" | sed "s,https://,https://$AZP_TOKEN@,")
       git clone --depth 1 "$GIT_REPO_URL_WITH_TOKEN" /workspace/source
       echo "Source code cloned successfully."
+
+      # --- DEBUG İÇİN EKLENEN BÖLÜM ---
+      echo "--- Listing cloned files for debugging ---"
+      ls -laR /workspace
+      echo "--- Debug listing complete ---"
+      # --- DEBUG BÖLÜMÜ SONU ---
+
     env:
     - name: GIT_REPO_URL
       value: "__GIT_REPO_URL__"
