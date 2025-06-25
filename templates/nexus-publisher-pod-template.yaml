@@ -71,43 +71,43 @@ spec:
 
         cd "/workspace/source/helpdesk-app-src/$CONTEXT_SUB_PATH_RELATIVE/" 
         echo -n "$CONTEXT_SUB_PATH_RELATIVE"
-        if [ "$SERVICE_TYPE" = "frontend" ]; then
-          # --- FRONTEND YAYINLAMA MANTIĞI ---
-          echo ">>> Frontend artifact publishing process started."
+        # if [ "$SERVICE_TYPE" = "frontend" ]; then
+        #   # --- FRONTEND YAYINLAMA MANTIĞI ---
+        #   echo ">>> Frontend artifact publishing process started."
           
-          # .npmrc dosyasını burada oluşturmak daha güvenli
-          echo ">>> Creating .npmrc for Nexus authentication..."
-          npm config set registry "$NPM_GROUP_URL"
-          AUTH_TOKEN=$(echo -n "$NEXUS_USERNAME:$NEXUS_PASSWORD" | base64)
-          echo "_auth=$AUTH_TOKEN" >> ./.npmrc
-          echo "always-auth=true" >> ./.npmrc
+        #   # .npmrc dosyasını burada oluşturmak daha güvenli
+        #   echo ">>> Creating .npmrc for Nexus authentication..."
+        #   npm config set registry "$NPM_GROUP_URL"
+        #   AUTH_TOKEN=$(echo -n "$NEXUS_USERNAME:$NEXUS_PASSWORD" | base64)
+        #   echo "_auth=$AUTH_TOKEN" >> ./.npmrc
+        #   echo "always-auth=true" >> ./.npmrc
           
-          npm install
-          npm run build
+        #   npm install
+        #   npm run build
           
-          ARTIFACT_NAME="frontend-$BUILD_ID.tar.gz"
-          # 'dist' klasörünün bir üst dizinine çıkıp oradan tar komutunu çalıştırıyoruz.
-          tar -czvf "/workspace/source/$ARTIFACT_NAME" -C dist .
+        #   ARTIFACT_NAME="frontend-$BUILD_ID.tar.gz"
+        #   # 'dist' klasörünün bir üst dizinine çıkıp oradan tar komutunu çalıştırıyoruz.
+        #   tar -czvf "/workspace/source/$ARTIFACT_NAME" -C dist .
           
-          echo "Artifact created: $ARTIFACT_NAME"
+        #   echo "Artifact created: $ARTIFACT_NAME"
 
-          UPLOAD_URL="$FRONTEND_ARTIFACT_REPO_URL/$ARTIFACT_NAME"
-          echo "Uploading $ARTIFACT_NAME to $UPLOAD_URL"
-          curl -v --fail -u "$NEXUS_USERNAME:$NEXUS_PASSWORD" --upload-file "/workspace/source/$ARTIFACT_NAME" "$UPLOAD_URL"
+        #   UPLOAD_URL="$FRONTEND_ARTIFACT_REPO_URL/$ARTIFACT_NAME"
+        #   echo "Uploading $ARTIFACT_NAME to $UPLOAD_URL"
+        #   curl -v --fail -u "$NEXUS_USERNAME:$NEXUS_PASSWORD" --upload-file "/workspace/source/$ARTIFACT_NAME" "$UPLOAD_URL"
 
-        else
-          # --- MEVCUT PYTHON YAYINLAMA MANTIĞI ---
-          echo ">>> Python package publishing process started."
-          sed -i "s/version=['\"].*['\"]/version='$PACKAGE_VERSION'/" setup.py
-          pip install --no-cache-dir --index-url "$PYPI_GROUP_URL" --trusted-host "nexus-repository-manager.nexus" wheel twine
-          python setup.py sdist bdist_wheel
+        # else
+        #   # --- MEVCUT PYTHON YAYINLAMA MANTIĞI ---
+        #   echo ">>> Python package publishing process started."
+        #   sed -i "s/version=['\"].*['\"]/version='$PACKAGE_VERSION'/" setup.py
+        #   pip install --no-cache-dir --index-url "$PYPI_GROUP_URL" --trusted-host "nexus-repository-manager.nexus" wheel twine
+        #   python setup.py sdist bdist_wheel
           
-          export TWINE_USERNAME="$NEXUS_USERNAME"
-          export TWINE_PASSWORD="$NEXUS_PASSWORD"
-          twine upload --repository-url "$TARGET_REPO_URL" dist/*
-        fi
+        #   export TWINE_USERNAME="$NEXUS_USERNAME"
+        #   export TWINE_PASSWORD="$NEXUS_PASSWORD"
+        #   twine upload --repository-url "$TARGET_REPO_URL" dist/*
+        # fi
         
-        echo ">>> Publishing process completed successfully."
+        # echo ">>> Publishing process completed successfully."
 
   volumes:
   - name: work-volume
