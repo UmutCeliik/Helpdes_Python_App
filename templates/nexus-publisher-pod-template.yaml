@@ -27,31 +27,28 @@ spec:
 
   containers:
   - name: publisher
-    image: umut98/nexus-publisher:latest # YENİ OLUŞTURDUĞUNUZ İMAJ
+    image: umut98/nexus-publisher:latest 
     env:
-    # --- Ortak Değişkenler ---
     - name: NEXUS_USERNAME
       value: __NEXUS_USERNAME__
     - name: NEXUS_PASSWORD
       value: __NEXUS_PASSWORD__
     - name: CONTEXT_SUB_PATH_RELATIVE
       value: __CONTEXT_SUB_PATH_RELATIVE__
-    - name: SERVICE_TYPE # YENİ: 'backend' veya 'frontend' olacak
+    - name: SERVICE_TYPE
       value: __SERVICE_TYPE__
-    # --- Python'a Özel Değişkenler ---
     - name: PACKAGE_VERSION
       value: __PACKAGE_VERSION__
     - name: TARGET_REPO_URL
       value: __TARGET_REPO_URL__
     - name: PYPI_GROUP_URL
       value: __PYPI_GROUP_URL__
-    # --- Frontend'e Özel Değişkenler ---
-    - name: NPM_GROUP_URL # YENİ
+    - name: NPM_GROUP_URL
       value: __NPM_GROUP_URL__
-    - name: FRONTEND_ARTIFACT_REPO_URL # YENİ
+    - name: FRONTEND_ARTIFACT_REPO_URL
       value: __FRONTEND_ARTIFACT_REPO_URL__
-    - name: BUILD_ID # YENİ
-      value: __BUILD_ID__
+    - name: BUILD_ID
+      value: "__BUILD_ID__"
 
     command: ["/bin/bash", "-c"]
     args:
