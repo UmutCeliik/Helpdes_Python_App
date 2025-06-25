@@ -53,7 +53,7 @@ spec:
         # Bu, `//registry.example.com/:_authToken` formatını kendisi oluşturacaktır.
         npm config set registry "__NPM_GROUP_URL__"
         npm config set "//$(echo "__NPM_GROUP_URL__" | sed 's|^https\{0,1\}://||'):_authToken" "$(echo -n "__NEXUS_USERNAME__:__NEXUS_PASSWORD__" | base64)"
-        npm config set always-auth true
+        # npm config set always-auth true
         # Not: npm config set ile .npmrc güncellendiği için eski `echo "_auth=..."` satırlarına gerek kalmaz.
         
         echo ">>> .npmrc file created for Nexus authentication."
