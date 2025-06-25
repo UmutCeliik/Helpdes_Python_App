@@ -68,15 +68,8 @@ spec:
     args:
       - |
         set -ex
-        # `sleep` satırını kaldırın, sadece debug için eklemiştik
-        # sleep 180 
-        
-        # Git klonlama ile ilgili path sorununu daha önce konuşmuştuk.
-        # Eğer /workspace/source/frontend/ hala yoksa
-        # ve `ls -laR /workspace` çıktınızda `/workspace/source` altında `helpdesk-app-src` yoksa,
-        # bu yolu `cd "/workspace/source/$CONTEXT_SUB_PATH_RELATIVE/"` olarak bırakmalısınız.
-        # Eğer `ls -laR /workspace/source` çıktısında `helpdesk-app-src` varsa, bu yol doğru.
-        cd "/workspace/source/$CONTEXT_SUB_PATH_RELATIVE/" 
+        # Daha önceki "cd" hatasının çözüldüğünü varsayarak bu kısım kalabilir.
+        cd "/workspace/source/helpdesk-app-src/$CONTEXT_SUB_PATH_RELATIVE/" 
         echo -n "$CONTEXT_SUB_PATH_RELATIVE"
         if [ "$SERVICE_TYPE" = "frontend" ]; then
           # --- FRONTEND YAYINLAMA MANTIĞI ---
@@ -84,12 +77,17 @@ spec:
           
           # .npmrc dosyasını burada oluşturmak daha güvenli
           echo ">>> Creating .npmrc for Nexus authentication..."
-          npm config set registry "$NPM_GROUP_URL"
-          AUTH_TOKEN=$(echo -n "$NEXUS_USERNAME:$NEXUS_PASSWORD" | base64)
-          echo "_auth=$AUTH_TOKEN" >> ./.npmrc
-          echo "always-auth=true" >> ./.npmrc
           
-          npm install # Bu hatayı çözdüğümüzde Nexus Lifecycle/Firewall sorununu ele alacağız.
+          # --- BURADAKİ DÜZELTME BAŞLANGICI ---
+          AUTH_TOKEN=$(echo -n "$NEXUS_USERNAME:$NEXUS_PASSWORD" | base64)
+          CLEAN_NPM_REGISTRY_URL=$(echo "$NPM_GROUP_URL" | sed 's|^https\{0,1\}://||') # NPM_GROUP_URL kullandık
+          
+          echo "//${CLEAN_NPM_REGISTRY_URL}:_auth=$AUTH_TOKEN" >> ./.npmrc
+          echo "always-auth=true" >> ./.npmrc
+          echo "registry=${NPM_GROUP_URL}" >> ./.npmrc # Bu satırın da kalması iyidir
+          # --- BURADAKİ DÜZELTME SONU ---
+          
+          npm install 
           npm run build
           
           ARTIFACT_NAME="frontend-$BUILD_ID.tar.gz"
