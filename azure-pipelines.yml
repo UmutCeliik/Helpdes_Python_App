@@ -15,7 +15,7 @@ variables:
 - group: Redmine-Integration
 - group: Nexus-Credentials
 - name: harborRepo
-  value: 'harbor-core.harbor-ns/helpdesk'
+  value: 'harbor3.cloudpro.com.tr/helpdesk'
 - name: imageTag
   value: '$(Build.BuildId)'
 - name: k8sNamespace
