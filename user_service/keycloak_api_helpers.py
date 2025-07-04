@@ -1,9 +1,13 @@
 # user_service/keycloak_api_helpers.py
+import logging
 import httpx
 from typing import Optional, Dict, Any, List
 from datetime import datetime, timedelta
 
-from .config import Settings # user_service'in kendi config'ini kullanacak
+from .config import Settings
+
+# Servis adıyla logger'ı al
+logger = logging.getLogger("user_service")
 
 _user_service_admin_token_cache: Dict[str, Any] = {
     "token": None,
@@ -16,13 +20,13 @@ async def get_admin_api_token(settings: Settings) -> Optional[str]:
 
     if _user_service_admin_token_cache["token"] and \
        _user_service_admin_token_cache["expires_at"] > datetime.utcnow() + timedelta(seconds=30):
-        print("USER_SVC_KC_HELPER: Using cached admin token.")
+        logger.debug("Using cached Keycloak admin token.")
         return _user_service_admin_token_cache["token"]
 
     if not all([settings.keycloak.admin_api_token_endpoint, 
                 settings.keycloak.admin_client_id, 
                 settings.keycloak.admin_client_secret]):
-        print("HATA (USER_SVC_KC_HELPER): Admin API token endpoint, client ID veya secret yapılandırılmamış.")
+        logger.error("Admin API token endpoint, client ID, or secret is not configured.")
         return None
 
     payload = {
@@ -32,9 +36,8 @@ async def get_admin_api_token(settings: Settings) -> Optional[str]:
     }
     headers = {"Content-Type": "application/x-www-form-urlencoded"}
 
-    print(f"USER_SVC_KC_HELPER: Requesting new admin token from {settings.keycloak.admin_api_token_endpoint}")
+    logger.info(f"Requesting new Keycloak admin token from {settings.keycloak.admin_api_token_endpoint}")
     try:
-        # DEĞİŞİKLİK: SSL doğrulamasını atlamak için verify=False eklendi.
         async with httpx.AsyncClient(verify=False) as client:
             response = await client.post(settings.keycloak.admin_api_token_endpoint, data=payload, headers=headers)
             response.raise_for_status()
@@ -46,13 +49,13 @@ async def get_admin_api_token(settings: Settings) -> Optional[str]:
             _user_service_admin_token_cache["token"] = access_token
             _user_service_admin_token_cache["expires_at"] = datetime.utcnow() + timedelta(seconds=expires_in)
 
-            print("USER_SVC_KC_HELPER: New admin token obtained and cached.")
+            logger.info("New Keycloak admin token obtained and cached.")
             return access_token
     except httpx.HTTPStatusError as e:
-        print(f"HATA (USER_SVC_KC_HELPER): Admin token alırken HTTP hatası: {e.response.status_code} - {e.response.text}")
-    except Exception as e:
-        print(f"HATA (USER_SVC_KC_HELPER): Admin token alırken beklenmedik hata: {e}")
-
+        logger.error(f"HTTP error while getting admin token: {e.response.status_code} - {e.response.text}", exc_info=True)
+    except Exception:
+        logger.exception("Unexpected error while getting admin token.")
+    
     _user_service_admin_token_cache["token"] = None
     return None
 
@@ -60,51 +63,50 @@ async def create_keycloak_group(group_name: str, settings: Settings) -> Optional
     """Keycloak'ta verilen isimle yeni bir ana grup (tenant) oluşturur."""
     admin_token = await get_admin_api_token(settings)
     if not admin_token:
-        print("HATA (USER_SVC_KC_HELPER): Grup oluşturmak için admin token alınamadı.")
+        logger.error("Could not get admin token to create group.")
         return None
 
     group_payload = {"name": group_name}
     create_group_url = f"{settings.keycloak.admin_api_realm_url}/groups"
     headers = {"Authorization": f"Bearer {admin_token}", "Content-Type": "application/json"}
 
-    print(f"USER_SVC_KC_HELPER: Creating Keycloak group '{group_name}' at {create_group_url}")
+    logger.info(f"Creating Keycloak group '{group_name}' at {create_group_url}")
     try:
-        # DEĞİŞİKLİK: SSL doğrulamasını atlamak için verify=False eklendi.
         async with httpx.AsyncClient(verify=False) as client:
             response = await client.post(create_group_url, json=group_payload, headers=headers)
             if response.status_code == 201:
                 location_header = response.headers.get("Location")
                 if location_header:
                     created_group_id = location_header.split("/")[-1]
-                    print(f"USER_SVC_KC_HELPER: Keycloak group '{group_name}' created successfully. ID: {created_group_id}")
+                    logger.info(f"Keycloak group '{group_name}' created successfully. ID: {created_group_id}")
                     return created_group_id
                 else:
-                    print(f"HATA (USER_SVC_KC_HELPER): Grup '{group_name}' oluşturuldu (201) ancak Location header bulunamadı.")
+                    logger.error(f"Group '{group_name}' created (201) but Location header was not found.")
                     return None
             else:
                 response.raise_for_status()
     except httpx.HTTPStatusError as e:
         if e.response.status_code == 409:
-            print(f"UYARI (USER_SVC_KC_HELPER): Keycloak group '{group_name}' zaten mevcut (409 Conflict).")
+            logger.warning(f"Keycloak group '{group_name}' already exists (409 Conflict).")
             return "EXISTS"
         else:
-            print(f"HATA (USER_SVC_KC_HELPER): Keycloak group oluşturulurken HTTP hatası: {e.response.status_code} - {e.response.text[:200]}")
-    except Exception as e:
-        print(f"HATA (USER_SVC_KC_HELPER): Keycloak group oluşturulurken beklenmedik hata: {e}")
+            logger.error(f"HTTP error while creating Keycloak group: {e.response.status_code} - {e.response.text[:200]}", exc_info=True)
+    except Exception:
+        logger.exception("Unexpected error while creating Keycloak group.")
     return None
 
 async def create_keycloak_user(user_representation: Dict[str, Any], settings: Settings) -> Optional[str]:
     """Keycloak'ta yeni bir kullanıcı oluşturur."""
     admin_token = await get_admin_api_token(settings)
     if not admin_token:
+        logger.error("Could not get admin token to create user.")
         return None
 
     create_user_url = f"{settings.keycloak.admin_api_realm_url}/users"
     headers = {"Authorization": f"Bearer {admin_token}", "Content-Type": "application/json"}
 
-    print(f"USER_SVC_KC_HELPER: Creating Keycloak user '{user_representation.get('username')}'")
+    logger.info(f"Creating Keycloak user '{user_representation.get('username')}'")
     try:
-        # DEĞİŞİKLİK: SSL doğrulamasını atlamak için verify=False eklendi.
         async with httpx.AsyncClient(verify=False) as client:
             response = await client.post(create_user_url, json=user_representation, headers=headers)
             if response.status_code == 201:
@@ -113,37 +115,62 @@ async def create_keycloak_user(user_representation: Dict[str, Any], settings: Se
                     return location_header.split("/")[-1]
                 return None 
             elif response.status_code == 409:
-                print(f"HATA (USER_SVC_KC_HELPER): User '{user_representation.get('username')}' zaten mevcut (409 Conflict).")
+                logger.warning(f"User '{user_representation.get('username')}' already exists in Keycloak (409 Conflict).")
                 return "EXISTS"
             else:
                 response.raise_for_status()
     except httpx.HTTPStatusError as e:
-        print(f"HATA (USER_SVC_KC_HELPER): HTTP hatası (kullanıcı oluşturma): {e.response.status_code} - {e.response.text[:200]}")
-    except Exception as e:
-        print(f"HATA (USER_SVC_KC_HELPER): Beklenmedik hata (kullanıcı oluşturma): {e}")
+        logger.error(f"HTTP error while creating user: {e.response.status_code} - {e.response.text[:200]}", exc_info=True)
+    except Exception:
+        logger.exception("Unexpected error while creating user.")
     return None
+
+async def delete_keycloak_user(user_id: str, settings: Settings) -> bool:
+    """Bir Keycloak kullanıcısını siler."""
+    admin_token = await get_admin_api_token(settings)
+    if not admin_token:
+        logger.error(f"Could not get admin token to delete user {user_id}.")
+        return False
+
+    delete_user_url = f"{settings.keycloak.admin_api_realm_url}/users/{user_id}"
+    headers = {"Authorization": f"Bearer {admin_token}"}
+
+    logger.info(f"Deleting Keycloak user with ID '{user_id}'")
+    try:
+        async with httpx.AsyncClient(verify=False) as client:
+            response = await client.delete(delete_user_url, headers=headers)
+            if response.status_code in [204, 404]:
+                logger.info(f"Keycloak user {user_id} deleted successfully or was already not found.")
+                return True
+            response.raise_for_status()
+    except httpx.HTTPStatusError as e:
+        logger.error(f"HTTP error while deleting user {user_id}: {e.response.status_code} - {e.response.text[:200]}", exc_info=True)
+    except Exception:
+        logger.exception(f"Unexpected error while deleting user {user_id}.")
+    return False
 
 async def set_keycloak_user_password(user_id: str, password: str, temporary: bool, settings: Settings) -> bool:
     """Verilen kullanıcı için şifre atar."""
     admin_token = await get_admin_api_token(settings)
     if not admin_token:
+        logger.error(f"Could not get admin token to set password for user {user_id}.")
         return False
 
     password_payload = {"type": "password", "value": password, "temporary": temporary}
     set_password_url = f"{settings.keycloak.admin_api_realm_url}/users/{user_id}/reset-password"
     headers = {"Authorization": f"Bearer {admin_token}", "Content-Type": "application/json"}
 
-    print(f"USER_SVC_KC_HELPER: Setting password for user ID '{user_id}'")
+    logger.info(f"Setting password for user ID '{user_id}'")
     try:
-        # DEĞİŞİKLİK: SSL doğrulamasını atlamak için verify=False eklendi.
         async with httpx.AsyncClient(verify=False) as client:
             response = await client.put(set_password_url, json=password_payload, headers=headers)
             response.raise_for_status()
+            logger.info(f"Password set successfully for user {user_id}.")
             return True
     except httpx.HTTPStatusError as e:
-        print(f"HATA (USER_SVC_KC_HELPER): HTTP hatası (şifre atama): {e.response.status_code} - {e.response.text[:200]}")
-    except Exception as e:
-        print(f"HATA (USER_SVC_KC_HELPER): Beklenmedik hata (şifre atama): {e}")
+        logger.error(f"HTTP error while setting password for user {user_id}: {e.response.status_code} - {e.response.text[:200]}", exc_info=True)
+    except Exception:
+        logger.exception(f"Unexpected error while setting password for user {user_id}.")
     return False
 
 async def get_keycloak_realm_role_representation(role_name: str, settings: Settings) -> Optional[Dict[str, Any]]:
@@ -154,19 +181,19 @@ async def get_keycloak_realm_role_representation(role_name: str, settings: Setti
     role_url = f"{settings.keycloak.admin_api_realm_url}/roles/{role_name}"
     headers = {"Authorization": f"Bearer {admin_token}"}
     try:
-        # DEĞİŞİKLİK: SSL doğrulamasını atlamak için verify=False eklendi.
         async with httpx.AsyncClient(verify=False) as client:
             response = await client.get(role_url, headers=headers)
             response.raise_for_status()
             return response.json()
     except Exception:
-        print(f"HATA (USER_SVC_KC_HELPER): Rol temsili alınamadı: '{role_name}'.")
+        logger.error(f"Could not get role representation for role: '{role_name}'.", exc_info=True)
         return None
 
 async def assign_realm_roles_to_user(user_id: str, role_names: List[str], settings: Settings) -> bool:
     """Belirtilen kullanıcıya realm rollerini atar."""
     admin_token = await get_admin_api_token(settings)
     if not admin_token:
+        logger.error(f"Could not get admin token to assign roles to user {user_id}.")
         return False
 
     roles_to_assign = []
@@ -175,155 +202,148 @@ async def assign_realm_roles_to_user(user_id: str, role_names: List[str], settin
         if role_rep:
             roles_to_assign.append(role_rep)
         else:
-            print(f"UYARI: Realm rolü '{role_name}' bulunamadı, kullanıcıya atanamayacak.")
+            logger.warning(f"Realm role '{role_name}' not found, it will not be assigned to user {user_id}.")
     
     if not roles_to_assign:
+        logger.info(f"No valid roles found to assign for user {user_id}.")
         return True 
 
     assign_roles_url = f"{settings.keycloak.admin_api_realm_url}/users/{user_id}/role-mappings/realm"
     headers = {"Authorization": f"Bearer {admin_token}", "Content-Type": "application/json"}
 
-    print(f"USER_SVC_KC_HELPER: Assigning roles {role_names} to user '{user_id}'")
+    logger.info(f"Assigning roles {role_names} to user '{user_id}'")
     try:
-        # DEĞİŞİKLİK: SSL doğrulamasını atlamak için verify=False eklendi.
         async with httpx.AsyncClient(verify=False) as client:
             response = await client.post(assign_roles_url, json=roles_to_assign, headers=headers)
             response.raise_for_status()
+            logger.info(f"Roles successfully assigned to user {user_id}.")
             return True
     except httpx.HTTPStatusError as e:
-        print(f"HATA (USER_SVC_KC_HELPER): HTTP hatası (rol atama): {e.response.status_code} - {e.response.text[:200]}")
-    except Exception as e:
-        print(f"HATA (USER_SVC_KC_HELPER): Beklenmedik hata (rol atama): {e}")
+        logger.error(f"HTTP error while assigning roles to user {user_id}: {e.response.status_code} - {e.response.text[:200]}", exc_info=True)
+    except Exception:
+        logger.exception(f"Unexpected error while assigning roles to user {user_id}.")
     return False
 
 async def add_user_to_group(user_id: str, group_id: str, settings: Settings) -> bool:
     """Bir kullanıcıyı bir gruba ekler."""
     admin_token = await get_admin_api_token(settings)
     if not admin_token:
+        logger.error(f"Could not get admin token to add user {user_id} to group {group_id}.")
         return False
 
     add_to_group_url = f"{settings.keycloak.admin_api_realm_url}/users/{user_id}/groups/{group_id}"
     headers = {"Authorization": f"Bearer {admin_token}"}
 
-    print(f"USER_SVC_KC_HELPER: Adding user '{user_id}' to group '{group_id}'")
+    logger.info(f"Adding user '{user_id}' to group '{group_id}'")
     try:
-        # DEĞİŞİKLİK: SSL doğrulamasını atlamak için verify=False eklendi.
         async with httpx.AsyncClient(verify=False) as client:
             response = await client.put(add_to_group_url, headers=headers)
             response.raise_for_status()
+            logger.info(f"Successfully added user '{user_id}' to group '{group_id}'.")
             return True
     except httpx.HTTPStatusError as e:
-        print(f"HATA (USER_SVC_KC_HELPER): HTTP hatası (gruba ekleme): {e.response.status_code} - {e.response.text[:200]}")
-    except Exception as e:
-        print(f"HATA (USER_SVC_KC_HELPER): Beklenmedik hata (gruba ekleme): {e}")
+        logger.error(f"HTTP error while adding user {user_id} to group {group_id}: {e.response.status_code} - {e.response.text[:200]}", exc_info=True)
+    except Exception:
+        logger.exception(f"Unexpected error while adding user {user_id} to group {group_id}.")
     return False
 
 async def get_keycloak_user(user_id: str, settings: Settings) -> Optional[Dict[str, Any]]:
     """Kullanıcı detaylarını Keycloak'tan alır."""
     admin_token = await get_admin_api_token(settings)
-    if not admin_token:
-        return None
+    if not admin_token: return None
     
     user_url = f"{settings.keycloak.admin_api_realm_url}/users/{user_id}"
     headers = {"Authorization": f"Bearer {admin_token}"}
 
-    print(f"USER_SVC_KC_HELPER: Fetching user details for ID '{user_id}'")
+    logger.debug(f"Fetching Keycloak user details for ID '{user_id}'")
     try:
-        # DEĞİŞİKLİK: SSL doğrulamasını atlamak için verify=False eklendi.
         async with httpx.AsyncClient(verify=False) as client:
             response = await client.get(user_url, headers=headers)
             if response.status_code == 404:
+                logger.warning(f"User with ID '{user_id}' not found in Keycloak.")
                 return None
             response.raise_for_status()
         return response.json()
-    except Exception as e:
-        print(f"HATA: Keycloak'tan kullanıcı detayı alınırken hata: {e}")
+    except Exception:
+        logger.exception(f"Error fetching user details from Keycloak for user ID: {user_id}")
         return None
 
 async def update_keycloak_user_attributes(user_id: str, user_representation_update: Dict[str, Any], settings: Settings) -> bool:
     """Kullanıcı özelliklerini günceller."""
     admin_token = await get_admin_api_token(settings)
-    if not admin_token:
-        return False
+    if not admin_token: return False
 
     update_user_url = f"{settings.keycloak.admin_api_realm_url}/users/{user_id}"
     headers = {"Authorization": f"Bearer {admin_token}", "Content-Type": "application/json"}
 
-    print(f"USER_SVC_KC_HELPER: Updating Keycloak user ID '{user_id}'")
+    logger.info(f"Updating Keycloak user ID '{user_id}' with data: {user_representation_update}")
     try:
-        # DEĞİŞİKLİK: SSL doğrulamasını atlamak için verify=False eklendi.
         async with httpx.AsyncClient(verify=False) as client:
             response = await client.put(update_user_url, json=user_representation_update, headers=headers)
             response.raise_for_status()
+            logger.info(f"Successfully updated attributes for user {user_id}.")
             return True
     except httpx.HTTPStatusError as e:
-        print(f"HATA (USER_SVC_KC_HELPER): HTTP hatası (kullanıcı güncelleme): {e.response.status_code} - {e.response.text[:200]}")
-    except Exception as e:
-        print(f"HATA (USER_SVC_KC_HELPER): Beklenmedik hata (kullanıcı güncelleme): {e}")
+        logger.error(f"HTTP error while updating user attributes for {user_id}: {e.response.status_code} - {e.response.text[:200]}", exc_info=True)
+    except Exception:
+        logger.exception(f"Unexpected error while updating user attributes for {user_id}.")
     return False
 
 async def get_user_keycloak_groups(user_id: str, settings: Settings) -> Optional[List[Dict[str, Any]]]:
     """Kullanıcının üye olduğu grupları getirir."""
     admin_token = await get_admin_api_token(settings)
-    if not admin_token:
-        return None
+    if not admin_token: return None
         
     groups_url = f"{settings.keycloak.admin_api_realm_url}/users/{user_id}/groups"
     headers = {"Authorization": f"Bearer {admin_token}"}
 
-    print(f"USER_SVC_KC_HELPER: Fetching groups for user ID '{user_id}'")
+    logger.debug(f"Fetching groups for user ID '{user_id}'")
     try:
-        # DEĞİŞİKLİK: SSL doğrulamasını atlamak için verify=False eklendi.
         async with httpx.AsyncClient(verify=False) as client:
             response = await client.get(groups_url, headers=headers)
             response.raise_for_status()
         return response.json()
     except httpx.HTTPStatusError as e:
-        print(f"HATA (USER_SVC_KC_HELPER): HTTP hatası (grup getirme): {e.response.status_code} - {e.response.text[:200]}")
-    except Exception as e:
-        print(f"HATA (USER_SVC_KC_HELPER): Beklenmedik hata (grup getirme): {e}")
+        logger.error(f"HTTP error while fetching groups for user {user_id}: {e.response.status_code} - {e.response.text[:200]}", exc_info=True)
+    except Exception:
+        logger.exception(f"Unexpected error while fetching groups for user {user_id}.")
     return None
 
 async def remove_user_from_keycloak_group(user_id: str, group_id: str, settings: Settings) -> bool:
     """Bir kullanıcıyı bir gruptan çıkarır."""
     admin_token = await get_admin_api_token(settings)
-    if not admin_token:
-        return False
+    if not admin_token: return False
 
     remove_from_group_url = f"{settings.keycloak.admin_api_realm_url}/users/{user_id}/groups/{group_id}"
     headers = {"Authorization": f"Bearer {admin_token}"}
 
-    print(f"USER_SVC_KC_HELPER: Removing user '{user_id}' from group '{group_id}'")
+    logger.info(f"Removing user '{user_id}' from group '{group_id}'")
     try:
-        # DEĞİŞİKLİK: SSL doğrulamasını atlamak için verify=False eklendi.
         async with httpx.AsyncClient(verify=False) as client:
             response = await client.delete(remove_from_group_url, headers=headers)
             response.raise_for_status()
+            logger.info(f"Successfully removed user '{user_id}' from group '{group_id}'.")
             return True
     except httpx.HTTPStatusError as e:
-        print(f"HATA (USER_SVC_KC_HELPER): HTTP hatası (gruptan çıkarma): {e.response.status_code} - {e.response.text[:200]}")
-    except Exception as e:
-        print(f"HATA (USER_SVC_KC_HELPER): Beklenmedik hata (gruptan çıkarma): {e}")
+        logger.error(f"HTTP error while removing user {user_id} from group {group_id}: {e.response.status_code} - {e.response.text[:200]}", exc_info=True)
+    except Exception:
+        logger.exception(f"Unexpected error while removing user {user_id} from group {group_id}.")
     return False
 
 async def set_user_realm_roles(user_id: str, new_role_names: List[str], settings: Settings) -> bool:
     """Kullanıcının realm rollerini günceller."""
     admin_token = await get_admin_api_token(settings)
-    if not admin_token:
-        return False
+    if not admin_token: return False
 
     headers = {"Authorization": f"Bearer {admin_token}", "Content-Type": "application/json"}
     
     try:
-        # DEĞİŞİKLİK: Tüm httpx istemcileri için verify=False eklendi.
         async with httpx.AsyncClient(verify=False) as client:
-            # Mevcut tüm rolleri al
             all_roles_url = f"{settings.keycloak.admin_api_realm_url}/roles"
             roles_response = await client.get(all_roles_url, headers=headers)
             roles_response.raise_for_status()
             available_roles_map = {role['name']: role for role in roles_response.json()}
 
-            # Mevcut kullanıcı rollerini al
             user_roles_url = f"{settings.keycloak.admin_api_realm_url}/users/{user_id}/role-mappings/realm"
             user_roles_response = await client.get(user_roles_url, headers=headers)
             user_roles_response.raise_for_status()
@@ -333,35 +353,33 @@ async def set_user_realm_roles(user_id: str, new_role_names: List[str], settings
             roles_to_add = new_roles_set - current_user_roles_set
             roles_to_remove = current_user_roles_set - new_roles_set
 
-            # Rolleri sil
             if roles_to_remove:
                 roles_to_remove_reps = [available_roles_map[name] for name in roles_to_remove if name in available_roles_map]
                 if roles_to_remove_reps:
+                    logger.info(f"Removing roles {list(roles_to_remove)} from user {user_id}.")
                     delete_response = await client.request("DELETE", user_roles_url, headers=headers, json=roles_to_remove_reps)
                     delete_response.raise_for_status()
 
-            # Rolleri ekle
             if roles_to_add:
                 roles_to_add_reps = [available_roles_map[name] for name in roles_to_add if name in available_roles_map]
                 if roles_to_add_reps:
+                    logger.info(f"Adding roles {list(roles_to_add)} to user {user_id}.")
                     add_response = await client.post(user_roles_url, headers=headers, json=roles_to_add_reps)
                     add_response.raise_for_status()
         return True
-    except Exception as e:
-        print(f"HATA (set_user_realm_roles): {e}")
+    except Exception:
+        logger.exception(f"Failed to set realm roles for user {user_id}.")
         return False
 
 async def update_keycloak_group(group_id: str, new_name: str, settings: Settings) -> bool:
     """Bir Keycloak grubunu günceller."""
     admin_token = await get_admin_api_token(settings)
-    if not admin_token:
-        return False
+    if not admin_token: return False
 
     group_url = f"{settings.keycloak.admin_api_realm_url}/groups/{group_id}"
     headers = {"Authorization": f"Bearer {admin_token}", "Content-Type": "application/json"}
 
     try:
-        # DEĞİŞİKLİK: SSL doğrulamasını atlamak için verify=False eklendi.
         async with httpx.AsyncClient(verify=False) as client:
             response_get = await client.get(group_url, headers={"Authorization": f"Bearer {admin_token}"})
             response_get.raise_for_status()
@@ -370,82 +388,37 @@ async def update_keycloak_group(group_id: str, new_name: str, settings: Settings
             updated_group_representation = current_group_representation.copy()
             updated_group_representation["name"] = new_name
             
+            logger.info(f"Updating Keycloak group {group_id} name to '{new_name}'.")
             response_put = await client.put(group_url, json=updated_group_representation, headers=headers)
             response_put.raise_for_status()
         return True
     except httpx.HTTPStatusError as e:
-        print(f"HATA (update_keycloak_group): {e.response.status_code} - {e.response.text[:200]}")
-    except Exception as e:
-        print(f"HATA (update_keycloak_group): {e}")
+        logger.error(f"HTTP error while updating Keycloak group {group_id}: {e.response.status_code} - {e.response.text[:200]}", exc_info=True)
+    except Exception:
+        logger.exception(f"Unexpected error while updating Keycloak group {group_id}.")
     return False
 
 async def delete_keycloak_group(group_id: str, settings: Settings) -> bool:
     """Bir Keycloak grubunu siler."""
     admin_token = await get_admin_api_token(settings)
-    if not admin_token:
-        return False
+    if not admin_token: return False
 
     delete_group_url = f"{settings.keycloak.admin_api_realm_url}/groups/{group_id}"
     headers = {"Authorization": f"Bearer {admin_token}"}
 
-    print(f"USER_SVC_KC_HELPER: Deleting Keycloak group ID '{group_id}'")
+    logger.info(f"Deleting Keycloak group ID '{group_id}'")
     try:
-        # DEĞİŞİKLİK: SSL doğrulamasını atlamak için verify=False eklendi.
         async with httpx.AsyncClient(verify=False) as client:
             response = await client.delete(delete_group_url, headers=headers)
-            if response.status_code in [204, 404]: # Başarılı veya zaten yok
-                return True
-            response.raise_for_status()
-    except httpx.HTTPStatusError as e:
-        print(f"HATA (delete_keycloak_group): {e.response.status_code} - {e.response.text[:200]}")
-    except Exception as e:
-        print(f"HATA (delete_keycloak_group): {e}")
-    return False
-
-async def delete_keycloak_user(user_id: str, settings: Settings) -> bool:
-    """Bir Keycloak kullanıcısını siler."""
-    admin_token = await get_admin_api_token(settings)
-    if not admin_token:
-        return False
-
-    delete_user_url = f"{settings.keycloak.admin_api_realm_url}/users/{user_id}"
-    headers = {"Authorization": f"Bearer {admin_token}"}
-
-    print(f"USER_SVC_KC_HELPER: Deleting Keycloak user ID '{user_id}'")
-    try:
-        # DEĞİŞİKLİK: SSL doğrulamasını atlamak için verify=False eklendi.
-        async with httpx.AsyncClient(verify=False) as client:
-            response = await client.delete(delete_user_url, headers=headers)
             if response.status_code in [204, 404]:
+                logger.info(f"Keycloak group {group_id} deleted or was not found.")
                 return True
             response.raise_for_status()
     except httpx.HTTPStatusError as e:
-        print(f"HATA (delete_keycloak_user): {e.response.status_code} - {e.response.text[:200]}")
-    except Exception as e:
-        print(f"HATA (delete_keycloak_user): {e}")
+        logger.error(f"HTTP error while deleting Keycloak group {group_id}: {e.response.status_code} - {e.response.text[:200]}", exc_info=True)
+    except Exception:
+        logger.exception(f"Unexpected error while deleting Keycloak group {group_id}.")
     return False
-
-async def get_all_keycloak_users_paginated(settings: Settings) -> Optional[List[Dict[str, Any]]]:
-    """Tüm Keycloak kullanıcılarını sayfalama yaparak çeker."""
-    admin_token = await get_admin_api_token(settings)
-    if not admin_token: return None
-
-    all_users, first, max_results = [], 0, 100
-    users_url = f"{settings.keycloak.admin_api_realm_url}/users"
-    headers = {"Authorization": f"Bearer {admin_token}"}
-
-    # DEĞİŞİKLİK: SSL doğrulamasını atlamak için verify=False eklendi.
-    async with httpx.AsyncClient(verify=False) as client:
-        while True:
-            response = await client.get(users_url, headers=headers, params={"first": first, "max": max_results})
-            if response.status_code != 200:
-                return None
-            users_page = response.json()
-            if not users_page:
-                break
-            all_users.extend(users_page)
-            first += max_results
-    return all_users
 
 async def get_all_keycloak_groups_paginated(settings: Settings) -> Optional[List[Dict[str, Any]]]:
     """Tüm Keycloak gruplarını sayfalama yaparak çeker."""
@@ -456,16 +429,20 @@ async def get_all_keycloak_groups_paginated(settings: Settings) -> Optional[List
     groups_url = f"{settings.keycloak.admin_api_realm_url}/groups"
     headers = {"Authorization": f"Bearer {admin_token}"}
 
-    # DEĞİŞİKLİK: SSL doğrulamasını atlamak için verify=False eklendi.
+    logger.info("Fetching all groups from Keycloak with pagination.")
     async with httpx.AsyncClient(verify=False) as client:
         while True:
-            params = {"first": first, "max": max_results, "briefRepresentation": "false"}
-            response = await client.get(groups_url, headers=headers, params=params)
-            if response.status_code != 200:
+            try:
+                params = {"first": first, "max": max_results, "briefRepresentation": "false"}
+                response = await client.get(groups_url, headers=headers, params=params)
+                response.raise_for_status()
+                groups_page = response.json()
+                if not groups_page:
+                    break
+                all_groups.extend(groups_page)
+                first += max_results
+            except Exception:
+                logger.exception(f"Failed to fetch group page starting from index {first}.")
                 return None
-            groups_page = response.json()
-            if not groups_page:
-                break
-            all_groups.extend(groups_page)
-            first += max_results
+    logger.info(f"Successfully fetched a total of {len(all_groups)} groups from Keycloak.")
     return all_groups
