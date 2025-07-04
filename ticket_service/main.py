@@ -20,7 +20,7 @@ from .logging_config import setup_logging, LoggingMiddleware
 
 # Loglamayı başlat
 SERVICE_NAME = "ticket_service"
-SERVICE_NAME3 = "ticket_servicee"
+SERVICE_NAME4 = "ticket_servicee"
 logger = setup_logging(SERVICE_NAME)
 
 API_PREFIX = "/api/tickets"

@@ -10,7 +10,7 @@ spec:
   hostAliases:
   - ip: "10.77.3.203"
     hostnames:
-    - "harbor.cloudpro.com.tr"
+    - "harbor3.cloudpro.com.tr"
     - "vault.cloudpro.com.tr"
     - "keycloak.cloudpro.com.tr"
     - "argo.cloudpro.com.tr"

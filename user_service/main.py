@@ -24,7 +24,7 @@ from .logging_config import setup_logging, LoggingMiddleware
 
 # Loglamayı başlat
 SERVICE_NAME = "user_service"
-SERVICE_NAME3 = "user_service"
+SERVICE_NAME4 = "user_service"
 logger = setup_logging(SERVICE_NAME)
 
 async def sync_all_tenants_from_keycloak_on_startup(db: Session, settings: Settings):
