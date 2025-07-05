@@ -42,6 +42,50 @@ jobs:
     persistCredentials: true
 
   # ===================================================================
+  # DOCKER/HARBOR CREDENTIALS YÖNETİMİ
+  # ===================================================================
+  - task: DownloadSecureFile@1
+    name: downloadHarborCreds
+    displayName: '0. Download Docker/Harbor Credentials Config'
+    inputs:
+      secureFile: 'config.json' # Azure DevOps Secure File'a verdiğiniz ad
+
+  - task: Bash@3 
+    displayName: '0.1. Create/Update Docker/Harbor Credentials Secret in K8s'
+    inputs:
+      targetType: 'inline'
+      script: |
+        set -ex # Hata durumunda çık
+
+        SECRET_NAME="harbor-credentials" # kaniko-pod-template.yaml'deki secretName ile eşleşmeli
+        NAMESPACE="$(k8sNamespace)"     # ado-agents namespace'i
+
+        echo "--- Debug: Secure file path: $(downloadHarborCreds.secureFilePath)"
+        
+        # Güvenli dosya içeriğini base64 olarak oku
+        # -w 0 Linux/macOS için, Windows PowerShell'de farklı olabilir.
+        # Agent'ınız Linux/Unix tabanlıysa bu doğrudur.
+        SECURE_FILE_CONTENT=$(cat "$(downloadHarborCreds.secureFilePath)" | base64 -w 0)
+        
+        echo "Attempting to create/update Kubernetes secret '$SECRET_NAME' in namespace '$NAMESPACE'."
+        
+        # Secret YAML'ı oluştur ve kubectl apply ile Kubernetes'e gönder
+        # apply komutu, secret yoksa oluşturur, varsa günceller (idempotent).
+        cat <<EOF | kubectl apply -f -
+        apiVersion: v1
+        kind: Secret
+        metadata:
+          name: $SECRET_NAME
+          namespace: $NAMESPACE
+        data:
+          .dockerconfigjson: "$SECURE_FILE_CONTENT"
+        type: kubernetes.io/dockerconfigjson
+        EOF
+        
+        echo "Kubernetes secret '$SECRET_NAME' successfully created/updated."
+    condition: succeeded() # Secure file indirme başarılı olursa çalışsın
+
+  # ===================================================================
   # BÖLÜM 1: SCA TARAMA POD'U (Yorumlu bırakıldı)
   # ===================================================================
   - task: Bash@3
@@ -304,7 +348,18 @@ jobs:
       targetType: 'inline'
       script: |
         safePodSuffix=$(echo "$(serviceName)" | sed 's/_/-/g'); kanikoPodName="kaniko-build-$(imageTag)-$safePodSuffix"; echo "##vso[task.setvariable variable=kanikoPodName]$kanikoPodName"
-        cp "$(kanikoTemplateFile)" "$(kanikoFinalFile)-kaniko-$(serviceName)"; sed -i "s|__POD_NAME__|$kanikoPodName|g" "$(kanikoFinalFile)-kaniko-$(serviceName)"; sed -i "s|__CONTEXT__|$(gitRepoUrl)|g" "$(kanikoFinalFile)-kaniko-$(serviceName)"; sed -i "s|__CONTEXT_SUB_PATH__|$(serviceName)|g" "$(kanikoFinalFile)-kaniko-$(serviceName)"; sed -i "s|__DESTINATION_TAG__|$(harborRepo)/$(serviceName):$(imageTag)|g" "$(kanikoFinalFile)-kaniko-$(serviceName)"; sed -i "s|__AZP_TOKEN__|$AZP_TOKEN|g" "$(kanikoFinalFile)-kaniko-$(serviceName)"
+        cp "$(kanikoTemplateFile)" "$(kanikoFinalFile)-kaniko-$(serviceName)"; 
+        
+        sed -i "s|__POD_NAME__|$kanikoPodName|g" "$(kanikoFinalFile)-kaniko-$(serviceName)"; 
+        sed -i "s|__CONTEXT__|$(gitRepoUrl)|g" "$(kanikoFinalFile)-kaniko-$(serviceName)"; 
+        sed -i "s|__CONTEXT_SUB_PATH__|$(serviceName)|g" "$(kanikoFinalFile)-kaniko-$(serviceName)"; 
+        sed -i "s|__DESTINATION_TAG__|$(harborRepo)/$(serviceName):$(imageTag)|g" "$(kanikoFinalFile)-kaniko-$(serviceName)"; 
+        sed -i "s|__AZP_TOKEN__|$AZP_TOKEN|g" "$(kanikoFinalFile)-kaniko-$(serviceName)"
+
+        echo "--- Generated Kaniko Pod Manifest ---"
+        cat "$(kanikoFinalFile)-kaniko-$(serviceName)"
+
+      condition: and(succeeded(), eq(variables['sonar_status'], 'OK'))
 
   - task: Kubernetes@1
     displayName: '4b. Apply & Run Kaniko Pod'
@@ -315,7 +370,7 @@ jobs:
     inputs:
       targetType: 'inline'
       script: |
-        echo "Waiting for pod $(kanikoPodName) to start..."; kubectl wait --for=condition=Ready pod/$(kanikoPodName) --timeout=15m -n $(k8sNamespace); kubectl logs $(kanikoPodName) -n $(k8sNamespace) -c kaniko --follow
+        echo "Waiting for pod $(kanikoPodName) to start..."; kubectl wait --for=condition=Ready pod/$(kanikoPodName) --timeout=5m -n $(k8sNamespace); kubectl logs $(kanikoPodName) -n $(k8sNamespace) -c kaniko --follow
 
   - task: Kubernetes@1
     displayName: '4d. Cleanup Kaniko Pod'
