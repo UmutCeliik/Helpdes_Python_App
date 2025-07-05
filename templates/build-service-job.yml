@@ -142,8 +142,14 @@ jobs:
     inputs:
       targetType: 'inline'
       script: |
-        echo "Waiting for pod $(scaPodName) to finish..."; kubectl wait --for=condition=Ready pod/$(scaPodName) --timeout=5m -n $(k8sNamespace); kubectl logs $(scaPodName) -n $(k8sNamespace) -c scanner --follow
+        set -ex # Hata durumunda scripti durdur
+
+        echo "Waiting for pod $(scaPodName) to start..."
+        kubectl wait --for=condition=Ready pod/$(scaPodName) --timeout=5m -n $(k8sNamespace)
         
+        echo "Pod $(scaPodName) is Ready. Getting logs..."
+        kubectl logs $(scaPodName) -n $(k8sNamespace) -c scanner --follow
+
   - task: Kubernetes@1
     displayName: '1d. Cleanup SCA Pod'
     condition: always()
@@ -372,10 +378,10 @@ jobs:
       script: |
         echo "Waiting for pod $(kanikoPodName) to start..."; kubectl wait --for=condition=Ready pod/$(kanikoPodName) --timeout=5m -n $(k8sNamespace); kubectl logs $(kanikoPodName) -n $(k8sNamespace) -c kaniko --follow
 
-  - task: Kubernetes@1
-    displayName: '4d. Cleanup Kaniko Pod'
-    condition: always()
-    inputs: { connectionType: 'None', namespace: '$(k8sNamespace)', command: 'delete', arguments: 'pod/$(kanikoPodName) --ignore-not-found=true' }
+  # - task: Kubernetes@1
+  #   displayName: '4d. Cleanup Kaniko Pod'
+  #   condition: always()
+  #   inputs: { connectionType: 'None', namespace: '$(k8sNamespace)', command: 'delete', arguments: 'pod/$(kanikoPodName) --ignore-not-found=true' }
   
   
 
