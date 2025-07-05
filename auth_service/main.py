@@ -18,6 +18,7 @@ from pythonjsonlogger import jsonlogger
 import sys
 
 SERVICE_NAME = "auth_service"
+SERVICE_NAME22 = "auth_service"
 logger = setup_logging(SERVICE_NAME)
 
 app = FastAPI(title="Authentication Service API - Keycloak Integrated")
