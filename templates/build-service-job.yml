@@ -86,7 +86,7 @@ jobs:
     condition: succeeded() # Secure file indirme başarılı olursa çalışsın
 
   # ===================================================================
-  # BÖLÜM 1: SCA TARAMA POD'U (Yorumlu bırakıldı)
+  # BÖLÜM 1: SCA TARAMA POD'U
   # ===================================================================
   - task: Bash@3
     name: PrepareScaManifest
@@ -108,18 +108,24 @@ jobs:
         fi
         
         safePodSuffix=$(echo "$(serviceName)" | sed 's/_/-/g')
-        scaPodName="sca-$(imageTag)-$safePodSuffix"
-        echo "##vso[task.setvariable variable=scaPodName]$scaPodName"
+        
+        # ÖNCE: Ham pod adı oluşturulur
+        rawScaPodName="sca-$(imageTag)-$safePodSuffix"
+        
+        # SONRA: Pod adı geçersiz karakterlerden temizlenir (ÇÖZÜM)
+        sanitizedScaPodName=$(echo "$rawScaPodName" | tr -d "'\"") # Tek ve çift tırnakları siler
+        
+        # Temizlenmiş değişken pipeline'da kullanılır
+        echo "##vso[task.setvariable variable=scaPodName]$sanitizedScaPodName"
         
         finalScaManifest="$(kanikoFinalFile)-sca-$(serviceName)"
         cp templates/sca-pod-template.yaml "$finalScaManifest"
 
         # --- YENİ EKLENEN NEXUS DEĞİŞKENLERİ ---
-        # Nexus URL'ini kullanıcı adı ve şifre ile birleştiriyoruz.
         NEXUS_URL_WITH_CREDS=$(echo "$(NEXUS_INTERNAL_URL)/repository/helpdesk-pypi-all/simple/" | sed "s,http://,http://$NEXUS_USER:$NEXUS_PASS@,")
         
-        # Standart değişkenleri dolduruyoruz
-        sed -i "s|__POD_NAME__|$scaPodName|g" "$finalScaManifest"
+        # Değiştirme işlemlerinde temizlenmiş pod adı kullanılır
+        sed -i "s|__POD_NAME__|$sanitizedScaPodName|g" "$finalScaManifest"
         sed -i "s|__CONTEXT__|$(gitRepoUrl)|g" "$finalScaManifest"
         sed -i "s|__CONTEXT_SUB_PATH__|$(serviceName)|g" "$finalScaManifest"
         sed -i "s|__AZP_TOKEN__|$AZP_TOKEN|g" "$finalScaManifest"
